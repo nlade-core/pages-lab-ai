@@ -46,7 +46,15 @@ CPU-only Python can't give it.
   checked out fine: verified by round-tripping generated audio back through the already-verified
   Whisper pipeline and confirming the transcript matched the input text exactly. `device: 'wasm'`
   explicitly, so it stays in the same runs-everywhere lane as pages 1/2/4, not chat/diffusion's
-  WebGPU-only one.
+  WebGPU-only one. **Real bug found live, on the user's own Mac:** loads fine in Safari, but generating
+  speech spikes CPU/memory and looks like a hang (rest of the tab stays responsive — it isn't a real
+  deadlock, WebKit's JIT is just looping) while the identical page works fine in Chrome on the same
+  machine. Root cause: [microsoft/onnxruntime#26827](https://github.com/microsoft/onnxruntime/issues/26827)
+  — a pathological loop in WebKit's own JIT stack allocator, triggered by ONNX Runtime Web's JSEP mode
+  on WebKit 26, unrelated to this page's code (the report's own repro used a completely different
+  model). Not deterministic — didn't reproduce in Playwright's WebKit during investigation — so the
+  page shows a soft warning to Safari visitors (detected via user-agent sniffing that correctly
+  excludes Chromium, which also has "Safari" in its UA string) rather than blocking use outright.
 
 ## Considered, not built
 
