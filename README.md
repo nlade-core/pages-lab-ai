@@ -23,8 +23,19 @@ CPU-only Python can't give it.
 
 - **Zero-shot / open-vocabulary classification (CLIP-style)** — user types their own candidate labels
   instead of being stuck with ImageNet's fixed, dated 1000-class vocabulary (no "person," no
-  "screenshot," lots of oddly narrow categories). A materially different capability from the current
-  classifier, not just a bigger/newer model doing the same trick.
+  "screenshot," lots of oddly narrow categories). Mechanically it's page 1's image encoder + page 2's
+  embed-and-rank-by-cosine-similarity, recombined — CLIP itself just outputs a 512-number embedding
+  vector per image or per text string, no classification head; the ranked-percentage output is
+  assembled downstream the same way page 2 already does it. Looked into `Xenova/mobileclip_s0`
+  (Apple's on-device-optimized CLIP variant, not the standard 606MB/154MB ViT-B/32): its own
+  transformers.js config forces the vision tower to fp32 regardless of requested dtype, which reads as
+  the maintainers already knowing the quantized vision tower isn't trustworthy — same failure class as
+  MobileNetV2's, caught by them instead of by us this time. Realistic footprint is fp32 vision (~45.5MB)
+  + quantized text (~42.8MB) ≈ 88MB combined — heavier than pages 1/2, still well short of
+  WebLLM/diffusion territory, and doesn't need WebGPU. Also needs UX work beyond the model swap: CLIP's
+  zero-shot accuracy is sensitive to label phrasing (`"a photo of a dog"` scores meaningfully better
+  than bare `"dog"`), so a raw text box would under-sell it. Verdict: worth building next, budgeting for
+  verifying the quantized text tower and for the label-phrasing UX, not just wiring up the model.
 - **WebLLM chat demo** (Phi-3-mini / TinyLlama class) — flashier, but hundreds of MB to ~2GB and needs
   WebGPU, so it only works on Chrome/Edge with decent hardware.
 - **Distilled Stable Diffusion** via ONNX Runtime Web — same weight/WebGPU caveats as WebLLM.
