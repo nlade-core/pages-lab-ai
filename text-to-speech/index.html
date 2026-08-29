@@ -108,6 +108,16 @@
 
   footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
   a { color: var(--accent); }
+
+  #safari-warning {
+    display: none;
+    background: color-mix(in srgb, orange 15%, var(--panel));
+    border: 1px solid orange;
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    margin-bottom: 1.25rem;
+    font-size: 0.9rem;
+  }
 </style>
 </head>
 <body>
@@ -115,6 +125,14 @@
     <h1>pages-lab-ai</h1>
     <p class="tagline">Kokoro — an 82M-parameter text-to-speech model, running entirely in your browser. Type something, pick a voice, hear it read aloud. No server, nothing sent anywhere.</p>
     <p class="subnote">Fifth page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, and <a href="../speech-to-text/">speech to text</a> — this one's the mirror image of that last one. Runs on <a href="https://github.com/hexgrad/kokoro" target="_blank" rel="noopener">Kokoro</a> via <a href="https://www.npmjs.com/package/kokoro-js" target="_blank" rel="noopener">kokoro-js</a>. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div id="safari-warning">
+      <strong>Heads up if you're on Safari:</strong> generating speech can spike CPU/memory and appear to
+      hang — this is a known WebKit JIT bug in ONNX Runtime Web's JSEP mode
+      (<a href="https://github.com/microsoft/onnxruntime/issues/26827" target="_blank" rel="noopener">onnxruntime#26827</a>),
+      not a bug in this page. It's not guaranteed to happen every time, but if it does, Chrome or Edge
+      don't have this issue.
+    </div>
 
     <div class="panel" id="boot-panel">
       <p>Loads Kokoro (int8-quantized) — about 92MB, cached by your browser after the first visit. Nothing downloads until you click.</p>
@@ -161,6 +179,14 @@
     const downloadLink = document.getElementById('download-link');
 
     let tts = null;
+
+    // Soft warning, not a hard block -- this doesn't reproduce every time (it
+    // didn't in WebKit-engine testing during development), so Safari visitors
+    // can still try it, just with a heads-up instead of an unexplained freeze.
+    const isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(navigator.userAgent);
+    if (isSafari) {
+      document.getElementById('safari-warning').style.display = 'block';
+    }
 
     textInput.addEventListener('input', () => {
       charCount.textContent = textInput.value.length + ' / 300';
