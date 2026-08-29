@@ -27,7 +27,19 @@ CPU-only Python can't give it.
   doesn't share with pages 1/2: the actual chat generation was not verified before shipping** — the
   build environment has no real GPU adapter to test against, only the load-failure path could be
   exercised. Needs a real WebGPU machine to confirm generation, streaming, and the stop/reset controls
-  actually work before calling it done the way the other two pages are.
+  actually work before calling it done the way the other two pages are. **Update:** tested live on an
+  iPhone 13 (Safari) — the 3B default loaded but crashed the tab shortly after generation started,
+  matching a documented WebLLM/mobile-Safari failure pattern (loading fits in memory; generation's
+  extra KV-cache/activation buffers don't). Consistent with community reports elsewhere: WebLLM is
+  workable on modern desktops, unreliable to broken on phones even at the 1-3B tier.
+- [Speech to text](https://nlade-core.github.io/pages-lab-ai/speech-to-text/) — Whisper-tiny.en,
+  upload an audio file or record from your microphone. Runs full fp32 weights (~152MB): **every**
+  quantized variant of this repo's decoder (q8, uint8, fp16 — int8 doesn't even exist at the expected
+  path) failed to create an ONNX Runtime Web session in a real browser, each with a different
+  graph-level error, despite loading fine in a Node-based test first. That Node test was the wrong
+  signal — Node uses a different ORT backend than the browser's WASM one, so "works in Node" didn't
+  transfer. Verified directly in headless Chrome afterward: correct transcription on a synthesized
+  test clip, and the microphone-record-to-blob-to-transcribe flow working end to end.
 
 ## Considered, not built
 
@@ -44,10 +56,16 @@ CPU-only Python can't give it.
   + quantized text (~42.8MB) ≈ 88MB combined — heavier than pages 1/2, still well short of
   WebLLM/diffusion territory, and doesn't need WebGPU. Also needs UX work beyond the model swap: CLIP's
   zero-shot accuracy is sensitive to label phrasing (`"a photo of a dog"` scores meaningfully better
-  than bare `"dog"`), so a raw text box would under-sell it. Still worth building; deprioritized behind
-  nothing now that chat is done, so it's the natural pick for a fourth page.
-- **Distilled Stable Diffusion** via ONNX Runtime Web — same WebGPU-required, no-CPU-fallback shape as
-  the chat page, but heavier and slower per generation.
+  than bare `"dog"`), so a raw text box would under-sell it. Still worth building — the natural pick
+  for the next page.
+- **Stable Diffusion** via ONNX Runtime Web — checked real component sizes (`aislamov`'s browser-ready
+  ONNX conversions): base SD 2.1 (needs 25-50 diffusion steps/image) is text encoder 681MB + UNet
+  1.75GB + VAE ~236MB ≈ 2.67GB total. An LCM-distilled variant (needs only 4-8 steps) is ≈ 2.2GB —
+  barely smaller. Correction to an earlier assumption: distillation buys generation *speed* (5-10x
+  fewer steps), not a smaller download — same ~2.2-2.7GB weight class as WebLLM's 3B tier either way,
+  and diffusion is more compute-hungry per generation than token-by-token chat decoding. Given the
+  chat page's real iPhone 13 crash, expect this to be unusable on any phone and dicey on modest
+  desktop GPUs. Same WebGPU-only, no-CPU-fallback shape as chat, just heavier.
 - **MobileNetV4-Small swap-in** for the current classifier — real but modest gain (73.8% vs 71.8%
   top-1 on ImageNet, at *fewer* MACs than V2), and its ONNX export hasn't been verified the way V2's
   was found broken. Low priority: same capability, not a new one.

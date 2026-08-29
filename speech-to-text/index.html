@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — speech to text</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --rec: #d1242f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --rec: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+  button.recording { background: var(--rec); }
+
+  #boot-status { color: var(--muted); font-size: 0.9rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #drop-zone.dragover { border-color: var(--accent); color: var(--fg); }
+  #drop-zone input { display: none; }
+
+  .workspace { display: none; }
+  .workspace.active { display: block; }
+
+  audio#preview { width: 100%; margin-top: 1rem; }
+
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  #transcript {
+    margin-top: 1.25rem;
+    padding: 1rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    min-height: 3em;
+    white-space: pre-wrap;
+  }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">Whisper — OpenAI's speech recognition model, running entirely in your browser. Record or upload audio, get a transcript. No server, nothing sent anywhere.</p>
+    <p class="subnote">Fourth page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, and <a href="../chat/">chat</a>. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel" id="boot-panel">
+      <p>Loads Whisper-tiny.en — about 152MB, cached by your browser after the first visit. Nothing downloads until you click.</p>
+      <button id="load-btn">Load the demo</button>
+      <div id="boot-status"></div>
+    </div>
+
+    <div class="panel workspace" id="workspace">
+      <div id="drop-zone">
+        <p><strong>Drop an audio file here</strong>, or click to choose one.</p>
+        <input type="file" id="file-input" accept="audio/*">
+      </div>
+      <button class="secondary" id="record-btn" style="margin-top:0.75rem;">Or record from your microphone</button>
+
+      <audio id="preview" controls style="display:none;"></audio>
+      <div class="op-note" id="op-note"></div>
+      <div id="transcript"></div>
+      <button class="secondary" id="reset-btn" style="margin-top:1rem; display:none;">Try a different clip</button>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script type="module">
+    // Pinned to an exact version deliberately, not @latest — see pages-lab-ai's
+    // README for why unpinned CDN model/library fetches are a supply-chain risk.
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.min.js';
+
+    const MODEL_ID = 'Xenova/whisper-tiny.en';
+
+    const bootStatus = document.getElementById('boot-status');
+    const loadBtn = document.getElementById('load-btn');
+    const workspace = document.getElementById('workspace');
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const recordBtn = document.getElementById('record-btn');
+    const preview = document.getElementById('preview');
+    const opNote = document.getElementById('op-note');
+    const transcriptEl = document.getElementById('transcript');
+    const resetBtn = document.getElementById('reset-btn');
+
+    let transcriber = null;
+
+    // fp32, deliberately: every quantized variant of this repo's decoder
+    // (q8, uint8, fp16 -- int8 doesn't even exist at the expected path) fails
+    // to create an ONNX Runtime Web session in a real browser, each with a
+    // different graph-level error. Verified directly against the actual WASM
+    // backend before shipping, not just that the pipeline loaded in Node
+    // (Node uses a different ORT backend and gave false confidence here).
+    loadBtn.addEventListener('click', async () => {
+      loadBtn.disabled = true;
+      bootStatus.textContent = 'Loading model weights…';
+      const t0 = performance.now();
+      try {
+        transcriber = await pipeline('automatic-speech-recognition', MODEL_ID, { dtype: 'fp32' });
+      } catch (e) {
+        bootStatus.textContent = 'Failed to load: ' + e.message;
+        loadBtn.disabled = false;
+        return;
+      }
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      bootStatus.textContent = 'Ready — loaded in ' + elapsed + 's.';
+      document.getElementById('boot-panel').style.display = 'none';
+      workspace.classList.add('active');
+    });
+
+    async function transcribeBlob(blob) {
+      preview.src = URL.createObjectURL(blob);
+      preview.style.display = 'block';
+      dropZone.style.display = 'none';
+      recordBtn.style.display = 'none';
+      resetBtn.style.display = 'inline-block';
+      opNote.textContent = 'Transcribing…';
+      transcriptEl.textContent = '';
+
+      const t0 = performance.now();
+      try {
+        const output = await transcriber(preview.src, { chunk_length_s: 30, stride_length_s: 5 });
+        const elapsed = performance.now() - t0;
+        transcriptEl.textContent = output.text.trim() || '(no speech detected)';
+        opNote.textContent = 'Transcribed in ' + elapsed.toFixed(0) + 'ms, real Whisper inference, computed just now.';
+      } catch (e) {
+        opNote.textContent = 'Transcription error: ' + e.message;
+      }
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) transcribeBlob(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) transcribeBlob(fileInput.files[0]);
+    });
+
+    // --- Microphone recording ---
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let isRecording = false;
+
+    recordBtn.addEventListener('click', async () => {
+      if (isRecording) {
+        mediaRecorder.stop();
+        return;
+      }
+      let stream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (e) {
+        opNote.textContent = 'Could not access microphone: ' + e.message;
+        return;
+      }
+      recordedChunks = [];
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) recordedChunks.push(e.data); };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        isRecording = false;
+        recordBtn.textContent = 'Or record from your microphone';
+        recordBtn.classList.remove('recording');
+        const blob = new Blob(recordedChunks, { type: 'audio/webm' });
+        transcribeBlob(blob);
+      };
+      mediaRecorder.start();
+      isRecording = true;
+      recordBtn.textContent = 'Stop recording';
+      recordBtn.classList.add('recording');
+      dropZone.style.display = 'none';
+      opNote.textContent = 'Recording…';
+    });
+
+    resetBtn.addEventListener('click', () => {
+      dropZone.style.display = 'block';
+      recordBtn.style.display = 'inline-block';
+      recordBtn.textContent = 'Or record from your microphone';
+      recordBtn.classList.remove('recording');
+      resetBtn.style.display = 'none';
+      preview.style.display = 'none';
+      preview.src = '';
+      fileInput.value = '';
+      transcriptEl.textContent = '';
+      opNote.textContent = '';
+    });
+  </script>
+</body>
+</html>
