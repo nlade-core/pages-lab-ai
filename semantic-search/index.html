@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — semantic search</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --bar: #0a58ca;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --bar: #6ea8fe;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  h2 { font-size: 1rem; margin-bottom: 0.5rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  #boot-status { color: var(--muted); font-size: 0.9rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  .workspace { display: none; }
+  .workspace.active { display: block; }
+
+  textarea {
+    width: 100%;
+    min-height: 160px;
+    resize: vertical;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  .field-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+  .field { margin-bottom: 1rem; }
+  .row { display: flex; gap: 0.5rem; }
+  .row input[type="text"] { flex: 1; }
+
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  #results { margin-top: 1.25rem; }
+  .result-row { margin-bottom: 0.6rem; }
+  .result-label { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; margin-bottom: 0.25rem; }
+  .result-label .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .result-label .pct { color: var(--muted); flex-shrink: 0; }
+  .result-bar-track { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; }
+  .result-bar-fill { background: var(--bar); height: 100%; border-radius: 4px; }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">Sentence embeddings — MiniLM, 384 dimensions — running entirely in your browser. Ranks text by <em>meaning</em>, not keyword overlap. No server, nothing sent anywhere.</p>
+    <p class="subnote">Second page in the <a href="../">pages-lab-ai</a> family, alongside the <a href="../">image classifier</a>. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel" id="boot-panel">
+      <p>Loads MiniLM (int8-quantized) — about 23MB, cached by your browser after the first visit. Nothing downloads until you click.</p>
+      <button id="load-btn">Load the demo</button>
+      <div id="boot-status"></div>
+    </div>
+
+    <div class="panel workspace" id="workspace">
+      <h2>1. Corpus</h2>
+      <p class="subnote">Edit these, or paste your own — one sentence per line.</p>
+      <div class="field">
+        <textarea id="corpus-input">A dog is a loyal, friendly pet that loves to play fetch.
+The stock market crashed sharply after the interest rate announcement.
+Photosynthesis is the process plants use to convert sunlight into energy.
+She booked a flight to Tokyo for her summer vacation.
+The recipe calls for two cups of flour and a teaspoon of salt.
+He spent the weekend fixing a leak under the kitchen sink.
+The championship game went into overtime after a last-second goal.
+Astronomers discovered a new exoplanet orbiting a distant star.
+The committee postponed the vote until next month's meeting.
+Her novel explores grief and memory across three generations.
+The startup raised a new funding round to expand into Europe.
+A gentle rain fell over the quiet mountain village all night.</textarea>
+      </div>
+      <button id="index-btn">Index corpus</button>
+      <div class="op-note" id="index-note"></div>
+
+      <div id="query-section" style="display:none; margin-top:1.5rem;">
+        <h2>2. Query</h2>
+        <div class="row">
+          <input type="text" id="query-input" placeholder="e.g. I just adopted a puppy">
+          <button id="search-btn">Search</button>
+        </div>
+        <div class="op-note" id="search-note"></div>
+        <div id="results"></div>
+      </div>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script type="module">
+    // Pinned to an exact version deliberately, not @latest — see pages-lab-ai's
+    // README for why unpinned CDN model/library fetches are a supply-chain risk.
+    import { pipeline } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.min.js';
+
+    const MODEL_ID = 'Xenova/all-MiniLM-L6-v2';
+
+    const bootStatus = document.getElementById('boot-status');
+    const loadBtn = document.getElementById('load-btn');
+    const workspace = document.getElementById('workspace');
+    const corpusInput = document.getElementById('corpus-input');
+    const indexBtn = document.getElementById('index-btn');
+    const indexNote = document.getElementById('index-note');
+    const querySection = document.getElementById('query-section');
+    const queryInput = document.getElementById('query-input');
+    const searchBtn = document.getElementById('search-btn');
+    const searchNote = document.getElementById('search-note');
+    const resultsEl = document.getElementById('results');
+
+    let embedder = null;
+    let corpusLines = [];
+    let corpusVectors = [];
+
+    // MiniLM's int8-quantized export is fine to use here (unlike MobileNetV2's,
+    // which was verified broken): quantization damages MobileNet's depthwise
+    // convolutions specifically, not the linear/attention layers a sentence
+    // transformer is built from. Checked side-by-side against fp32 on a small
+    // test set before shipping — same rankings, near-identical scores.
+    loadBtn.addEventListener('click', async () => {
+      loadBtn.disabled = true;
+      bootStatus.textContent = 'Loading model weights…';
+      const t0 = performance.now();
+      try {
+        embedder = await pipeline('feature-extraction', MODEL_ID, { dtype: 'q8' });
+      } catch (e) {
+        bootStatus.textContent = 'Failed to load: ' + e.message;
+        loadBtn.disabled = false;
+        return;
+      }
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      bootStatus.textContent = 'Ready — loaded in ' + elapsed + 's.';
+      document.getElementById('boot-panel').style.display = 'none';
+      workspace.classList.add('active');
+    });
+
+    function cosine(a, b) {
+      let dot = 0;
+      for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+      return dot; // both vectors are already L2-normalized, so dot product == cosine similarity
+    }
+
+    indexBtn.addEventListener('click', async () => {
+      corpusLines = corpusInput.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (corpusLines.length === 0) {
+        indexNote.textContent = 'Add at least one sentence.';
+        return;
+      }
+      indexBtn.disabled = true;
+      indexNote.textContent = 'Embedding ' + corpusLines.length + ' sentences…';
+      querySection.style.display = 'none';
+      resultsEl.innerHTML = '';
+
+      const t0 = performance.now();
+      const output = await embedder(corpusLines, { pooling: 'mean', normalize: true });
+      corpusVectors = output.tolist();
+      const elapsed = performance.now() - t0;
+
+      indexNote.textContent = 'Indexed ' + corpusLines.length + ' sentences in ' + elapsed.toFixed(0) + 'ms, real MiniLM inference.';
+      indexBtn.disabled = false;
+      querySection.style.display = 'block';
+    });
+
+    async function runSearch() {
+      const query = queryInput.value.trim();
+      if (!query || corpusVectors.length === 0) return;
+      searchNote.textContent = 'Searching…';
+
+      const t0 = performance.now();
+      const queryOut = await embedder(query, { pooling: 'mean', normalize: true });
+      const queryVec = Array.from(queryOut.data);
+      const scored = corpusLines.map((line, i) => ({ line, score: cosine(queryVec, corpusVectors[i]) }));
+      scored.sort((a, b) => b.score - a.score);
+      const elapsed = performance.now() - t0;
+
+      resultsEl.innerHTML = scored.map((s) => {
+        const pct = (s.score * 100).toFixed(1);
+        const barWidth = Math.max(0, Math.min(100, s.score * 100)).toFixed(1);
+        return '<div class="result-row">' +
+          '<div class="result-label"><span class="txt">' + s.line.replace(/</g, '&lt;') + '</span><span class="pct">' + pct + '%</span></div>' +
+          '<div class="result-bar-track"><div class="result-bar-fill" style="width:' + barWidth + '%"></div></div>' +
+          '</div>';
+      }).join('');
+
+      searchNote.textContent = 'Searched in ' + elapsed.toFixed(0) + 'ms, real MiniLM inference, computed just now.';
+    }
+
+    searchBtn.addEventListener('click', runSearch);
+    queryInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') runSearch(); });
+  </script>
+</body>
+</html>
