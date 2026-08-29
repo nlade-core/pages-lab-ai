@@ -98,6 +98,14 @@
     background: repeating-conic-gradient(#8883 0% 25%, transparent 0% 50%) 50% / 20px 20px;
   }
 
+  #webcam-video {
+    width: 100%;
+    max-height: 360px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #000;
+  }
+
   .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
 
   #results { margin-top: 1.25rem; }
@@ -129,12 +137,16 @@
         <p><strong>Drop a photo here</strong>, or click to choose one.</p>
         <input type="file" id="file-input" accept="image/*">
       </div>
+      <button class="secondary" id="webcam-btn" style="margin-top:0.75rem;">Or use your webcam, live</button>
 
       <div id="result-wrap" style="display:none;">
-        <img id="preview" alt="Uploaded photo">
+        <img id="preview" alt="Uploaded photo" style="display:none;">
+        <video id="webcam-video" autoplay playsinline muted style="display:none;"></video>
+        <canvas id="capture-canvas" style="display:none;"></canvas>
         <div class="op-note" id="op-note"></div>
         <div id="results"></div>
         <button class="secondary" id="new-image-btn" style="margin-top:1rem;">Choose a different photo</button>
+        <button class="secondary" id="stop-webcam-btn" style="margin-top:1rem; display:none;">Stop webcam</button>
       </div>
     </div>
 
@@ -158,10 +170,26 @@
     const fileInput = document.getElementById('file-input');
     const resultWrap = document.getElementById('result-wrap');
     const preview = document.getElementById('preview');
+    const webcamBtn = document.getElementById('webcam-btn');
+    const webcamVideo = document.getElementById('webcam-video');
+    const captureCanvas = document.getElementById('capture-canvas');
+    const stopWebcamBtn = document.getElementById('stop-webcam-btn');
+    const newImageBtn = document.getElementById('new-image-btn');
     const opNote = document.getElementById('op-note');
     const resultsEl = document.getElementById('results');
 
     let classifier = null;
+
+    function renderResults(output) {
+      resultsEl.innerHTML = output.map((r) => {
+        const pct = (r.score * 100).toFixed(1);
+        const label = r.label.split(',')[0];
+        return '<div class="result-row">' +
+          '<div class="result-label"><span>' + label + '</span><span class="pct">' + pct + '%</span></div>' +
+          '<div class="result-bar-track"><div class="result-bar-fill" style="width:' + pct + '%"></div></div>' +
+          '</div>';
+      }).join('');
+    }
 
     loadBtn.addEventListener('click', async () => {
       loadBtn.disabled = true;
@@ -196,8 +224,10 @@
 
     async function classifyFile(file) {
       const url = URL.createObjectURL(file);
+      preview.style.display = 'block';
       preview.src = url;
       dropZone.style.display = 'none';
+      webcamBtn.style.display = 'none';
       resultWrap.style.display = 'block';
       opNote.textContent = 'Classifying…';
       resultsEl.innerHTML = '';
@@ -206,25 +236,108 @@
       const output = await classifier(url, { top_k: 5 });
       const elapsed = performance.now() - t0;
 
-      resultsEl.innerHTML = output.map((r) => {
-        const pct = (r.score * 100).toFixed(1);
-        const label = r.label.split(',')[0];
-        return '<div class="result-row">' +
-          '<div class="result-label"><span>' + label + '</span><span class="pct">' + pct + '%</span></div>' +
-          '<div class="result-bar-track"><div class="result-bar-fill" style="width:' + pct + '%"></div></div>' +
-          '</div>';
-      }).join('');
-
+      renderResults(output);
       opNote.textContent = 'Classified in ' + elapsed.toFixed(0) + 'ms, real MobileNetV2 inference, computed just now.';
     }
 
-    document.getElementById('new-image-btn').addEventListener('click', () => {
+    function resetToIdle() {
       dropZone.style.display = 'block';
+      webcamBtn.style.display = 'inline-block';
       resultWrap.style.display = 'none';
       fileInput.value = '';
       resultsEl.innerHTML = '';
       opNote.textContent = '';
+      preview.style.display = 'none';
       preview.src = '';
+      newImageBtn.style.display = 'inline-block';
+      stopWebcamBtn.style.display = 'none';
+    }
+
+    newImageBtn.addEventListener('click', resetToIdle);
+
+    // --- Live webcam mode ---
+    // Same throttling trick as pages-pyodide's webcam demo: tie processing to
+    // real camera frames via requestVideoFrameCallback (rAF as fallback), and
+    // only run inference on every Nth one rather than every frame. Inference
+    // here (~60-90ms on WASM/CPU, measured against fp32 MobileNetV2) is much
+    // cheaper than pyodide's OpenCV ops, so every 5th frame (~6fps of the
+    // camera's native ~30fps) leaves comfortable headroom rather than being
+    // the tight constraint it was there.
+    const LIVE_MAX_DIMENSION = 480;
+    const PROCESS_EVERY_N_FRAMES = 5;
+    let webcamStream = null;
+    let webcamActive = false;
+    let inferenceBusy = false; // guards against overlapping classifier() calls if a frame ever runs long
+
+    webcamBtn.addEventListener('click', async () => {
+      try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 480 } } });
+      } catch (e) {
+        opNote.textContent = 'Could not access webcam: ' + e.message;
+        return;
+      }
+      webcamVideo.srcObject = webcamStream;
+      await new Promise((resolve) => { webcamVideo.onloadedmetadata = resolve; });
+
+      const rawWidth = webcamVideo.videoWidth;
+      const rawHeight = webcamVideo.videoHeight;
+      const scale = Math.min(1, LIVE_MAX_DIMENSION / Math.max(rawWidth, rawHeight));
+      captureCanvas.width = Math.round(rawWidth * scale);
+      captureCanvas.height = Math.round(rawHeight * scale);
+
+      dropZone.style.display = 'none';
+      webcamBtn.style.display = 'none';
+      preview.style.display = 'none';
+      webcamVideo.style.display = 'block';
+      resultWrap.style.display = 'block';
+      newImageBtn.style.display = 'none';
+      stopWebcamBtn.style.display = 'inline-block';
+
+      webcamActive = true;
+      let frameCount = 0;
+
+      const onVideoFrame = async () => {
+        if (!webcamActive) return;
+        frameCount++;
+        if (frameCount % PROCESS_EVERY_N_FRAMES === 0 && !inferenceBusy) {
+          await processCurrentFrame(frameCount);
+        }
+        if (webcamVideo.requestVideoFrameCallback) {
+          webcamVideo.requestVideoFrameCallback(onVideoFrame);
+        } else {
+          requestAnimationFrame(onVideoFrame);
+        }
+      };
+      if (webcamVideo.requestVideoFrameCallback) {
+        webcamVideo.requestVideoFrameCallback(onVideoFrame);
+      } else {
+        requestAnimationFrame(onVideoFrame);
+      }
+    });
+
+    async function processCurrentFrame(frameCount) {
+      inferenceBusy = true;
+      try {
+        const ctx = captureCanvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(webcamVideo, 0, 0, captureCanvas.width, captureCanvas.height);
+        const t0 = performance.now();
+        const output = await classifier(captureCanvas, { top_k: 5 });
+        const elapsed = performance.now() - t0;
+        if (!webcamActive) return;
+        renderResults(output);
+        const topLabel = output[0].label.split(',')[0];
+        opNote.textContent = 'Live: ' + topLabel + ' — frame #' + frameCount + ', ' + elapsed.toFixed(0) + 'ms, real MobileNetV2 inference.';
+      } finally {
+        inferenceBusy = false;
+      }
+    }
+
+    stopWebcamBtn.addEventListener('click', () => {
+      webcamActive = false;
+      if (webcamStream) webcamStream.getTracks().forEach((t) => t.stop());
+      webcamStream = null;
+      webcamVideo.style.display = 'none';
+      resetToIdle();
     });
   </script>
 </body>
