@@ -13,13 +13,14 @@ CPU-only Python can't give it.
   e.g. a clear black lab puppy called "spotlight" at 44% confidence). Webcam mode throttles to every
   5th real camera frame via `requestVideoFrameCallback`, same trick as pages-pyodide's live mode.
   **Parked here for now** — status quo, not actively being extended.
+- [Semantic search](https://nlade-core.github.io/pages-lab-ai/semantic-search/) — MiniLM sentence
+  embeddings (int8-quantized, ~23MB). Index a corpus, then rank it against a typed query by cosine
+  similarity — ranks meaning, not keyword overlap. Unlike MobileNetV2's, this model's quantized export
+  checked out fine against fp32 before shipping (quantization damages depthwise convs specifically, not
+  the linear/attention layers a sentence transformer is built from).
 
 ## Considered, not built
 
-- **Semantic search / embeddings** — type a sentence, embed it client-side, rank against a corpus by
-  cosine similarity. Doesn't need camera/mic permissions; reads as "AI" more distinctly than a
-  classifier does, since it does something classical CV categorically can't (work on meaning, not
-  pixels).
 - **Zero-shot / open-vocabulary classification (CLIP-style)** — user types their own candidate labels
   instead of being stuck with ImageNet's fixed, dated 1000-class vocabulary (no "person," no
   "screenshot," lots of oddly narrow categories). A materially different capability from the current
