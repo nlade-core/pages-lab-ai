@@ -134,6 +134,34 @@
   .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
   .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
   .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .msg img.attach { max-width: 100%; max-height: 160px; border-radius: 6px; margin-bottom: 0.4rem; }
+  .msg audio.attach { width: 100%; margin-bottom: 0.4rem; }
+
+  .attach-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.7rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    color: var(--muted);
+  }
+  .attach-label:hover { color: var(--fg); border-color: var(--accent); }
+  .attach-label input { display: none; }
+  .attach-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
+  .attach-chip button { padding: 0 0.3rem; font-size: 0.75rem; background: transparent; color: var(--muted); }
 
   .demo-disabled { opacity: 0.5; }
 
@@ -176,8 +204,13 @@
 
     <div class="panel" id="prompt-panel">
       <h2>Prompt API</h2>
-      <p class="subnote" style="margin-bottom:0.75rem;">Free-form chat with Gemini Nano directly — same shape as the WebLLM chat page, zero download here.</p>
+      <p class="subnote" style="margin-bottom:0.75rem;">Free-form chat with Gemini Nano directly — same shape as the WebLLM chat page, zero download here. Text, image, and audio all go in as input; output is text only — Gemini Nano can't generate images or audio back.</p>
       <div id="chat-log"></div>
+      <div class="row" id="attach-row">
+        <label class="attach-label">📷 Add image<input type="file" id="chat-image-input" accept="image/*"></label>
+        <label class="attach-label">🎵 Add audio<input type="file" id="chat-audio-input" accept="audio/*"></label>
+        <span id="attach-chips"></span>
+      </div>
       <div class="row">
         <input type="text" id="chat-input" placeholder="Say something…">
         <button id="chat-send-btn">Send</button>
@@ -318,33 +351,88 @@
       summarizeBtn.disabled = false;
     });
 
-    // --- Prompt API chat demo ---
+    // --- Prompt API chat demo (text, image, audio input) ---
     const chatLog = document.getElementById('chat-log');
     const chatInput = document.getElementById('chat-input');
     const chatSendBtn = document.getElementById('chat-send-btn');
     const chatNote = document.getElementById('chat-note');
+    const chatImageInput = document.getElementById('chat-image-input');
+    const chatAudioInput = document.getElementById('chat-audio-input');
+    const attachChips = document.getElementById('attach-chips');
 
     let session = null;
     let messages = [];
+    let pendingImage = null; // File
+    let pendingAudio = null; // File
 
     function escapeHtml(s) {
       return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
 
+    function renderAttachChips() {
+      attachChips.innerHTML = '';
+      if (pendingImage) {
+        const chip = document.createElement('span');
+        chip.className = 'attach-chip';
+        chip.innerHTML = '📷 ' + escapeHtml(pendingImage.name) + ' <button data-clear="image">×</button>';
+        attachChips.appendChild(chip);
+      }
+      if (pendingAudio) {
+        const chip = document.createElement('span');
+        chip.className = 'attach-chip';
+        chip.innerHTML = '🎵 ' + escapeHtml(pendingAudio.name) + ' <button data-clear="audio">×</button>';
+        attachChips.appendChild(chip);
+      }
+    }
+
+    attachChips.addEventListener('click', (e) => {
+      const clear = e.target.dataset.clear;
+      if (clear === 'image') { pendingImage = null; chatImageInput.value = ''; }
+      if (clear === 'audio') { pendingAudio = null; chatAudioInput.value = ''; }
+      renderAttachChips();
+    });
+    chatImageInput.addEventListener('change', () => {
+      pendingImage = chatImageInput.files[0] || null;
+      renderAttachChips();
+    });
+    chatAudioInput.addEventListener('change', () => {
+      pendingAudio = chatAudioInput.files[0] || null;
+      renderAttachChips();
+    });
+
     function renderChat() {
       chatLog.style.display = messages.length ? 'flex' : 'none';
       chatLog.innerHTML = messages
-        .map((m) => '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>' + escapeHtml(m.content) + '</div>')
+        .map((m) => {
+          let html = '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>';
+          if (m.imageUrl) html += '<img class="attach" src="' + m.imageUrl + '">';
+          if (m.audioUrl) html += '<audio class="attach" controls src="' + m.audioUrl + '"></audio>';
+          html += escapeHtml(m.content) + '</div>';
+          return html;
+        })
         .join('');
       chatLog.scrollTop = chatLog.scrollHeight;
     }
 
     async function sendChat() {
       const text = chatInput.value.trim();
-      if (!text) return;
+      if (!text && !pendingImage && !pendingAudio) return;
       chatSendBtn.disabled = true;
       chatInput.value = '';
-      messages.push({ role: 'user', content: text });
+      const image = pendingImage;
+      const audio = pendingAudio;
+      pendingImage = null;
+      pendingAudio = null;
+      chatImageInput.value = '';
+      chatAudioInput.value = '';
+      renderAttachChips();
+
+      messages.push({
+        role: 'user',
+        content: text,
+        imageUrl: image ? URL.createObjectURL(image) : null,
+        audioUrl: audio ? URL.createObjectURL(audio) : null,
+      });
       messages.push({ role: 'assistant', content: '' });
       renderChat();
       chatNote.textContent = 'Generating…';
@@ -352,7 +440,16 @@
       try {
         if (!session) {
           chatNote.textContent = 'Starting session (may download on first use, shared across every site)…';
+          // Declaring image/audio here is what actually requests multimodal
+          // capability -- a session created without expectedInputs is
+          // text-only and will reject a prompt containing an image or audio
+          // part.
           session = await LanguageModel.create({
+            expectedInputs: [
+              { type: 'text', languages: ['en'] },
+              { type: 'image' },
+              { type: 'audio' },
+            ],
             monitor(m) {
               m.addEventListener('downloadprogress', (e) => {
                 chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
@@ -360,8 +457,17 @@
             },
           });
         }
+
+        // Prompt API's content shape: an array of {type, value} parts. Text
+        // is optional if an attachment carries the turn on its own, but at
+        // least one part is required.
+        const content = [];
+        if (text) content.push({ type: 'text', value: text });
+        if (image) content.push({ type: 'image', value: image });
+        if (audio) content.push({ type: 'audio', value: audio });
+
         const t0 = performance.now();
-        const stream = session.promptStreaming(text);
+        const stream = session.promptStreaming([{ role: 'user', content }]);
         for await (const chunk of stream) {
           messages[messages.length - 1].content += chunk;
           renderChat();
