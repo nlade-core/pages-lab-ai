@@ -18,6 +18,16 @@ CPU-only Python can't give it.
   similarity — ranks meaning, not keyword overlap. Unlike MobileNetV2's, this model's quantized export
   checked out fine against fp32 before shipping (quantization damages depthwise convs specifically, not
   the linear/attention layers a sentence transformer is built from).
+- [Chat](https://nlade-core.github.io/pages-lab-ai/chat/) — a real LLM (Llama 3.2 or Qwen3.5, your
+  choice of a 1B/3B/9B size tier, disclosed before download) streaming responses via
+  [WebLLM](https://github.com/mlc-ai/web-llm)/WebGPU. The one page here with **no CPU fallback** — a
+  browser without WebGPU gets an explicit message instead of a broken demo, and a browser with the API
+  but no real adapter (checked in the sandbox this was built in, which has exactly that setup) gets
+  WebLLM's own clear "no compatible GPU" error, not a hang or a silent failure. **Caveat this page
+  doesn't share with pages 1/2: the actual chat generation was not verified before shipping** — the
+  build environment has no real GPU adapter to test against, only the load-failure path could be
+  exercised. Needs a real WebGPU machine to confirm generation, streaming, and the stop/reset controls
+  actually work before calling it done the way the other two pages are.
 
 ## Considered, not built
 
@@ -34,11 +44,10 @@ CPU-only Python can't give it.
   + quantized text (~42.8MB) ≈ 88MB combined — heavier than pages 1/2, still well short of
   WebLLM/diffusion territory, and doesn't need WebGPU. Also needs UX work beyond the model swap: CLIP's
   zero-shot accuracy is sensitive to label phrasing (`"a photo of a dog"` scores meaningfully better
-  than bare `"dog"`), so a raw text box would under-sell it. Verdict: worth building next, budgeting for
-  verifying the quantized text tower and for the label-phrasing UX, not just wiring up the model.
-- **WebLLM chat demo** (Phi-3-mini / TinyLlama class) — flashier, but hundreds of MB to ~2GB and needs
-  WebGPU, so it only works on Chrome/Edge with decent hardware.
-- **Distilled Stable Diffusion** via ONNX Runtime Web — same weight/WebGPU caveats as WebLLM.
+  than bare `"dog"`), so a raw text box would under-sell it. Still worth building; deprioritized behind
+  nothing now that chat is done, so it's the natural pick for a fourth page.
+- **Distilled Stable Diffusion** via ONNX Runtime Web — same WebGPU-required, no-CPU-fallback shape as
+  the chat page, but heavier and slower per generation.
 - **MobileNetV4-Small swap-in** for the current classifier — real but modest gain (73.8% vs 71.8%
   top-1 on ImageNet, at *fewer* MACs than V2), and its ONNX export hasn't been verified the way V2's
   was found broken. Low priority: same capability, not a new one.

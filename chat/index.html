@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — chat</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --bar: #0a58ca;
+    --bubble-user: #e7f0ff;
+    --bubble-assistant: #f6f8fa;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --bar: #6ea8fe;
+      --bubble-user: #1c2b42;
+      --bubble-assistant: #161b22;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  #boot-status { color: var(--muted); font-size: 0.9rem; margin-top: 0.75rem; min-height: 1.2em; white-space: pre-wrap; }
+
+  .workspace { display: none; }
+  .workspace.active { display: block; }
+
+  .model-picker { display: flex; flex-direction: column; gap: 0.6rem; margin: 1rem 0; }
+  .model-option {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    cursor: pointer;
+  }
+  .model-option input { margin-top: 0.2rem; }
+  .model-option .name { font-weight: 600; }
+  .model-option .meta { color: var(--muted); font-size: 0.85rem; }
+
+  #gpu-unavailable { display: none; }
+
+  input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.95rem;
+  }
+  .row { display: flex; gap: 0.5rem; }
+  .row input[type="text"] { flex: 1; }
+
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  #chat-log { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; max-height: 50vh; overflow-y: auto; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--bubble-user); }
+  .msg.assistant { align-self: flex-start; background: var(--bubble-assistant); border: 1px solid var(--border); }
+  .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">A real large language model — streaming responses, generated entirely in your browser via WebGPU. No server, no API key, nothing sent anywhere.</p>
+    <p class="subnote">Third page in the pages-lab-ai family, alongside the <a href="../">image classifier</a> and <a href="../semantic-search/">semantic search</a>. Runs on <a href="https://github.com/mlc-ai/web-llm" target="_blank" rel="noopener">WebLLM</a> (MLC-LLM). <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel" id="boot-panel">
+      <div id="gpu-unavailable">
+        <p><strong>This demo needs WebGPU</strong>, which your current browser doesn't support (or it's disabled).</p>
+        <p class="subnote" style="margin-top:0.5rem;">Unlike the other two pages here, there's no CPU fallback for this one — running an LLM this way genuinely needs GPU acceleration. Try Chrome or Edge on desktop, or Safari 18+.</p>
+      </div>
+      <div id="gpu-available-panel">
+        <p>Pick a size. Bigger models are slower to download and need more GPU memory, but reply more coherently.</p>
+        <div class="model-picker">
+          <label class="model-option">
+            <input type="radio" name="model" value="Llama-3.2-1B-Instruct-q4f16_1-MLC">
+            <div><span class="name">Lightweight</span> — Llama 3.2 1B<br><span class="meta">~880MB download, ~900MB GPU memory. Fastest, weakest replies.</span></div>
+          </label>
+          <label class="model-option">
+            <input type="radio" name="model" value="Llama-3.2-3B-Instruct-q4f16_1-MLC" checked>
+            <div><span class="name">Balanced (recommended)</span> — Llama 3.2 3B<br><span class="meta">~2.2GB download, ~2.3GB GPU memory. Good default for most modern devices.</span></div>
+          </label>
+          <label class="model-option">
+            <input type="radio" name="model" value="Qwen3.5-9B-q4f16_1-MLC">
+            <div><span class="name">Max quality</span> — Qwen3.5 9B<br><span class="meta">~6GB download, ~6.4GB GPU memory. Only pick this if you know your device can handle it.</span></div>
+          </label>
+        </div>
+        <button id="load-btn">Load selected model</button>
+        <div id="boot-status"></div>
+      </div>
+    </div>
+
+    <div class="panel workspace" id="workspace">
+      <div id="chat-log"></div>
+      <div class="row">
+        <input type="text" id="chat-input" placeholder="Say something…">
+        <button id="send-btn">Send</button>
+      </div>
+      <div class="op-note" id="chat-note"></div>
+      <button class="secondary" id="stop-btn" style="margin-top:0.75rem; display:none;">Stop generating</button>
+      <button class="secondary" id="reset-chat-btn" style="margin-top:0.75rem;">New chat</button>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script type="module">
+    // Pinned to an exact version deliberately, not @latest — see pages-lab-ai's
+    // README for why unpinned CDN model/library fetches are a supply-chain risk.
+    import * as webllm from 'https://cdn.jsdelivr.net/npm/@mlc-ai/web-llm@0.2.84/lib/index.js';
+
+    const bootPanel = document.getElementById('boot-panel');
+    const gpuUnavailable = document.getElementById('gpu-unavailable');
+    const gpuAvailablePanel = document.getElementById('gpu-available-panel');
+    const loadBtn = document.getElementById('load-btn');
+    const bootStatus = document.getElementById('boot-status');
+    const workspace = document.getElementById('workspace');
+    const chatLog = document.getElementById('chat-log');
+    const chatInput = document.getElementById('chat-input');
+    const sendBtn = document.getElementById('send-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const resetChatBtn = document.getElementById('reset-chat-btn');
+    const chatNote = document.getElementById('chat-note');
+
+    // Checked upfront, not just on click: this demo has no WASM/CPU fallback
+    // path the way the other two pages do, so a visitor without WebGPU should
+    // see why immediately rather than clicking Load and hitting an error.
+    if (!('gpu' in navigator)) {
+      gpuUnavailable.style.display = 'block';
+      gpuAvailablePanel.style.display = 'none';
+    }
+
+    let engine = null;
+    let messages = [{ role: 'system', content: 'You are a helpful, concise assistant.' }];
+    let generating = false;
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function renderChat() {
+      chatLog.innerHTML = messages
+        .filter((m) => m.role !== 'system')
+        .map((m) => '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>' + escapeHtml(m.content) + '</div>')
+        .join('');
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    loadBtn.addEventListener('click', async () => {
+      const modelId = document.querySelector('input[name="model"]:checked').value;
+      loadBtn.disabled = true;
+      bootStatus.textContent = 'Starting…';
+      try {
+        engine = await webllm.CreateMLCEngine(modelId, {
+          initProgressCallback: (report) => {
+            bootStatus.textContent = report.text;
+          },
+        });
+      } catch (e) {
+        bootStatus.textContent = 'Failed to load: ' + e.message;
+        loadBtn.disabled = false;
+        return;
+      }
+      bootPanel.style.display = 'none';
+      workspace.classList.add('active');
+    });
+
+    async function sendMessage() {
+      const text = chatInput.value.trim();
+      if (!text || generating || !engine) return;
+      messages.push({ role: 'user', content: text });
+      chatInput.value = '';
+      messages.push({ role: 'assistant', content: '' });
+      renderChat();
+
+      generating = true;
+      sendBtn.disabled = true;
+      stopBtn.style.display = 'inline-block';
+      chatNote.textContent = 'Generating…';
+
+      const t0 = performance.now();
+      let usage = null;
+      try {
+        const stream = await engine.chat.completions.create({
+          stream: true,
+          stream_options: { include_usage: true },
+          messages: messages.slice(0, -1),
+        });
+        for await (const chunk of stream) {
+          const delta = chunk.choices[0]?.delta?.content || '';
+          if (delta) {
+            messages[messages.length - 1].content += delta;
+            renderChat();
+          }
+          if (chunk.usage) usage = chunk.usage;
+        }
+        const elapsed = (performance.now() - t0) / 1000;
+        const toks = usage?.completion_tokens;
+        chatNote.textContent = toks
+          ? toks + ' tokens in ' + elapsed.toFixed(1) + 's (~' + (toks / elapsed).toFixed(1) + ' tok/s), real WebLLM inference.'
+          : 'Generated in ' + elapsed.toFixed(1) + 's, real WebLLM inference.';
+      } catch (e) {
+        chatNote.textContent = 'Generation error: ' + e.message;
+      }
+
+      generating = false;
+      sendBtn.disabled = false;
+      stopBtn.style.display = 'none';
+    }
+
+    sendBtn.addEventListener('click', sendMessage);
+    chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
+    stopBtn.addEventListener('click', () => { engine?.interruptGenerate(); });
+
+    resetChatBtn.addEventListener('click', () => {
+      messages = [{ role: 'system', content: 'You are a helpful, concise assistant.' }];
+      renderChat();
+      chatNote.textContent = '';
+    });
+  </script>
+</body>
+</html>
