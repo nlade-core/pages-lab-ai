@@ -59,10 +59,13 @@ CPU-only Python can't give it.
   every other page brings its own model, this one asks the browser instead. Live capability check
   (Summarizer, Prompt API, Writer, Rewriter, Proofreader, Translator, Language Detector — checked via
   each API's real `.availability()`, not assumed), plus working Summarizer and Prompt API demos.
-  Chrome desktop only, and flag-gated even there — found the real, current flag on the machine this
-  was built for by grepping the actual `chrome://flags` page rather than trusting documentation, which
-  turned out to have moved on to different flag names since it was written (`#prompt-api`, not
-  `optimization-guide-on-device-model`/`prompt-api-for-gemini-nano` as older docs said).
+  Chrome desktop only. Initially found and enabled the real, current flag (`#prompt-api`, not
+  `optimization-guide-on-device-model`/`prompt-api-for-gemini-nano` as older docs said — found by
+  grepping the actual `chrome://flags` page rather than trusting documentation that had moved on) —
+  but on checking back later, the flag was sitting at `Default` (not the `Enabled` it had been set
+  to) and the API still worked — meaning Prompt API has since graduated to on-by-default alongside
+  Summarizer/Translator/Language Detector. Writer/Rewriter/Proofreader are the only ones still
+  needing manual enabling.
   **Verification note, a new category:** testing this in Playwright's Chromium is fundamentally
   limited in a way none of the other pages are — Gemini Nano itself is a Google-proprietary asset that
   ships only with branded Google Chrome, not open-source Chromium. Playwright's browser has the full
