@@ -40,6 +40,13 @@ CPU-only Python can't give it.
   signal — Node uses a different ORT backend than the browser's WASM one, so "works in Node" didn't
   transfer. Verified directly in headless Chrome afterward: correct transcription on a synthesized
   test clip, and the microphone-record-to-blob-to-transcribe flow working end to end.
+- [Text to speech](https://nlade-core.github.io/pages-lab-ai/text-to-speech/) — Kokoro (82M params),
+  type text and pick a voice from ~28 options across languages/accents. Mirror image of the
+  speech-to-text page. Runs the int8-quantized export (~92MB) directly — unlike Whisper's, this one
+  checked out fine: verified by round-tripping generated audio back through the already-verified
+  Whisper pipeline and confirming the transcript matched the input text exactly. `device: 'wasm'`
+  explicitly, so it stays in the same runs-everywhere lane as pages 1/2/4, not chat/diffusion's
+  WebGPU-only one.
 
 ## Considered, not built
 
