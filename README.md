@@ -74,7 +74,10 @@ CPU-only Python can't give it.
   Chromium, this API is just echoing back the input"* — rather than real inference. Everything about
   this page's code, UI, and error handling is verified; the actual model output can only be confirmed
   on real Google Chrome (which the user separately did, live, via DevTools console, before this page
-  existed).
+  existed). **Update: confirmed working.** Multimodal chat (text + image + audio attachments) was
+  tested on the user's real Chrome and Gemini Nano correctly processed both the attached image and
+  audio alongside the text — the first fully-confirmed real inference result this page has gotten,
+  not just Chromium's stub.
 
 ## Considered, not built
 
