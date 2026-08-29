@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — Chrome's built-in AI</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  h2 { font-size: 1rem; margin-bottom: 0.5rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  .cap-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.9rem;
+  }
+  .cap-row:last-child { border-bottom: none; }
+  .cap-status { font-weight: 600; font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
+  .cap-status.available { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .cap-status.downloadable { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .cap-status.unavailable, .cap-status.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  textarea {
+    width: 100%;
+    min-height: 110px;
+    resize: vertical;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 0.95rem;
+    line-height: 1.4;
+    margin-bottom: 0.75rem;
+  }
+
+  select, input[type="text"] {
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.65rem;
+    font-size: 0.9rem;
+  }
+
+  .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  .row input[type="text"] { flex: 1; min-width: 200px; }
+
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  #summary-output, #chat-log {
+    margin-top: 1rem;
+    padding: 1rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    white-space: pre-wrap;
+  }
+
+  #chat-log { display: none; flex-direction: column; gap: 0.75rem; max-height: 40vh; overflow-y: auto; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
+  .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+
+  .demo-disabled { opacity: 0.5; }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">Chrome's own built-in AI (Gemini Nano), tested live in your browser — no model downloaded by this page at all.</p>
+    <p class="subnote">Sixth page in the pages-lab-ai family, the odd one out: every other page brings its own model. This one asks the browser instead. <b>Chrome desktop only</b> (no Safari, no Firefox, no mobile), and some of these APIs are still flag-gated even in Chrome — see <a href="https://developer.chrome.com/docs/ai/get-started" target="_blank" rel="noopener">chrome://flags/#prompt-api</a>. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel">
+      <h2>Capability check</h2>
+      <p class="subnote" style="margin-bottom:0.75rem;">What your specific browser actually has available, checked live — not assumed.</p>
+      <div id="cap-list"></div>
+    </div>
+
+    <div class="panel" id="summarizer-panel">
+      <h2>Summarizer</h2>
+      <textarea id="summarize-input" placeholder="Paste some text to summarize…">The web platform has historically required every AI feature to ship its own model over the network -- a chat page might download gigabytes of weights, an image classifier tens of megabytes, before it can do anything. Chrome's built-in AI APIs take a different approach: a single small on-device model, Gemini Nano, ships with the browser itself and is shared across every site that uses it. The tradeoff is that it only works in one browser, and only if the visitor's device meets certain hardware requirements.</textarea>
+      <div class="row">
+        <select id="summarize-type">
+          <option value="key-points" selected>Key points</option>
+          <option value="tldr">TL;DR</option>
+          <option value="teaser">Teaser</option>
+          <option value="headline">Headline</option>
+        </select>
+        <select id="summarize-length">
+          <option value="short">Short</option>
+          <option value="medium" selected>Medium</option>
+          <option value="long">Long</option>
+        </select>
+        <button id="summarize-btn">Summarize</button>
+      </div>
+      <div class="op-note" id="summarize-note"></div>
+      <div id="summary-output" style="display:none;"></div>
+    </div>
+
+    <div class="panel" id="prompt-panel">
+      <h2>Prompt API</h2>
+      <p class="subnote" style="margin-bottom:0.75rem;">Free-form chat with Gemini Nano directly — same shape as the WebLLM chat page, zero download here.</p>
+      <div id="chat-log"></div>
+      <div class="row">
+        <input type="text" id="chat-input" placeholder="Say something…">
+        <button id="chat-send-btn">Send</button>
+      </div>
+      <div class="op-note" id="chat-note"></div>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script type="module">
+    const capList = document.getElementById('cap-list');
+
+    const APIS = [
+      { name: 'Summarizer', global: 'Summarizer' },
+      { name: 'Prompt API (LanguageModel)', global: 'LanguageModel' },
+      { name: 'Writer', global: 'Writer' },
+      { name: 'Rewriter', global: 'Rewriter' },
+      { name: 'Proofreader', global: 'Proofreader' },
+      { name: 'Translator', global: 'Translator' },
+      { name: 'Language Detector', global: 'LanguageDetector' },
+    ];
+
+    const STATUS_LABEL = {
+      available: 'available',
+      downloadable: 'needs download',
+      downloading: 'downloading',
+      unavailable: 'unavailable',
+      missing: 'not in this browser',
+    };
+
+    async function checkCapabilities() {
+      for (const api of APIS) {
+        const row = document.createElement('div');
+        row.className = 'cap-row';
+        const label = document.createElement('span');
+        label.textContent = api.name;
+        const status = document.createElement('span');
+        status.className = 'cap-status';
+
+        const ctor = self[api.global];
+        if (!ctor) {
+          status.classList.add('missing');
+          status.textContent = STATUS_LABEL.missing;
+        } else {
+          try {
+            // Translator (and only Translator) requires a language pair to
+            // check availability against -- every other API here takes none.
+            const availability = api.global === 'Translator'
+              ? await ctor.availability({ sourceLanguage: 'en', targetLanguage: 'es' })
+              : await ctor.availability();
+            status.classList.add(availability === 'available' ? 'available' : availability === 'unavailable' ? 'unavailable' : 'downloadable');
+            status.textContent = STATUS_LABEL[availability] || availability;
+          } catch (e) {
+            status.classList.add('unavailable');
+            status.textContent = 'error: ' + e.message;
+          }
+        }
+
+        row.appendChild(label);
+        row.appendChild(status);
+        capList.appendChild(row);
+      }
+
+      // Gate the two live demos on their specific API actually being usable,
+      // rather than letting a visitor hit a raw exception on click.
+      const summarizerOk = self.Summarizer && (await self.Summarizer.availability()) !== 'unavailable';
+      const promptOk = self.LanguageModel && (await self.LanguageModel.availability()) !== 'unavailable';
+      if (!summarizerOk) {
+        document.getElementById('summarizer-panel').classList.add('demo-disabled');
+        document.getElementById('summarize-btn').disabled = true;
+        document.getElementById('summarize-note').textContent = 'Summarizer isn\'t available in this browser right now.';
+      }
+      if (!promptOk) {
+        document.getElementById('prompt-panel').classList.add('demo-disabled');
+        document.getElementById('chat-send-btn').disabled = true;
+        document.getElementById('chat-note').textContent = 'The Prompt API isn\'t available in this browser right now.';
+      }
+    }
+
+    checkCapabilities();
+
+    // --- Summarizer demo ---
+    const summarizeBtn = document.getElementById('summarize-btn');
+    const summarizeNote = document.getElementById('summarize-note');
+    const summaryOutput = document.getElementById('summary-output');
+
+    summarizeBtn.addEventListener('click', async () => {
+      const text = document.getElementById('summarize-input').value.trim();
+      if (!text) return;
+      summarizeBtn.disabled = true;
+      summarizeNote.textContent = 'Loading Summarizer (may download on first use, shared across every site)…';
+      summaryOutput.style.display = 'none';
+      try {
+        const summarizer = await Summarizer.create({
+          type: document.getElementById('summarize-type').value,
+          format: 'plain-text',
+          length: document.getElementById('summarize-length').value,
+          monitor(m) {
+            m.addEventListener('downloadprogress', (e) => {
+              summarizeNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
+            });
+          },
+        });
+        const t0 = performance.now();
+        const summary = await summarizer.summarize(text);
+        const elapsed = performance.now() - t0;
+        summaryOutput.textContent = summary;
+        summaryOutput.style.display = 'block';
+        summarizeNote.textContent = 'Summarized in ' + elapsed.toFixed(0) + 'ms, real Gemini Nano inference, computed just now.';
+      } catch (e) {
+        summarizeNote.textContent = 'Error: ' + e.message;
+      }
+      summarizeBtn.disabled = false;
+    });
+
+    // --- Prompt API chat demo ---
+    const chatLog = document.getElementById('chat-log');
+    const chatInput = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send-btn');
+    const chatNote = document.getElementById('chat-note');
+
+    let session = null;
+    let messages = [];
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function renderChat() {
+      chatLog.style.display = messages.length ? 'flex' : 'none';
+      chatLog.innerHTML = messages
+        .map((m) => '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>' + escapeHtml(m.content) + '</div>')
+        .join('');
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    async function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text) return;
+      chatSendBtn.disabled = true;
+      chatInput.value = '';
+      messages.push({ role: 'user', content: text });
+      messages.push({ role: 'assistant', content: '' });
+      renderChat();
+      chatNote.textContent = 'Generating…';
+
+      try {
+        if (!session) {
+          chatNote.textContent = 'Starting session (may download on first use, shared across every site)…';
+          session = await LanguageModel.create({
+            monitor(m) {
+              m.addEventListener('downloadprogress', (e) => {
+                chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
+              });
+            },
+          });
+        }
+        const t0 = performance.now();
+        const stream = session.promptStreaming(text);
+        for await (const chunk of stream) {
+          messages[messages.length - 1].content += chunk;
+          renderChat();
+        }
+        const elapsed = performance.now() - t0;
+        chatNote.textContent = 'Generated in ' + elapsed.toFixed(0) + 'ms, real Gemini Nano inference.';
+      } catch (e) {
+        chatNote.textContent = 'Error: ' + e.message;
+      }
+      chatSendBtn.disabled = false;
+    }
+
+    chatSendBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+  </script>
+</body>
+</html>

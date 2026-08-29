@@ -55,6 +55,23 @@ CPU-only Python can't give it.
   model). Not deterministic — didn't reproduce in Playwright's WebKit during investigation — so the
   page shows a soft warning to Safari visitors (detected via user-agent sniffing that correctly
   excludes Chromium, which also has "Safari" in its UA string) rather than blocking use outright.
+- [Chrome's built-in AI](https://nlade-core.github.io/pages-lab-ai/chrome-ai/) — the odd one out:
+  every other page brings its own model, this one asks the browser instead. Live capability check
+  (Summarizer, Prompt API, Writer, Rewriter, Proofreader, Translator, Language Detector — checked via
+  each API's real `.availability()`, not assumed), plus working Summarizer and Prompt API demos.
+  Chrome desktop only, and flag-gated even there — found the real, current flag on the machine this
+  was built for by grepping the actual `chrome://flags` page rather than trusting documentation, which
+  turned out to have moved on to different flag names since it was written (`#prompt-api`, not
+  `optimization-guide-on-device-model`/`prompt-api-for-gemini-nano` as older docs said).
+  **Verification note, a new category:** testing this in Playwright's Chromium is fundamentally
+  limited in a way none of the other pages are — Gemini Nano itself is a Google-proprietary asset that
+  ships only with branded Google Chrome, not open-source Chromium. Playwright's browser has the full
+  API surface (confirmed: Summarizer/Prompt/Translator/Language Detector all present, correctly report
+  `downloadable`) but calling them returns an honest built-in stub — *"Model not available in
+  Chromium, this API is just echoing back the input"* — rather than real inference. Everything about
+  this page's code, UI, and error handling is verified; the actual model output can only be confirmed
+  on real Google Chrome (which the user separately did, live, via DevTools console, before this page
+  existed).
 
 ## Considered, not built
 
