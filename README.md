@@ -134,6 +134,24 @@ CPU-only Python can't give it.
   feature here — and given `pyodide-nb`'s copilot and `thinking-chat` both landed on "functional but not
   brilliant," temper expectations for how well the model actually *decides* when to reach for the tool,
   even though the execution step itself is reliably correct regardless.
+- [Chat threads](https://nlade-core.github.io/pages-lab-ai/chat-threads/) — a Gemini Nano chat that
+  remembers more than one conversation, saved to `localStorage`, listed in a sidebar. The key design
+  constraint: nothing is loaded into the model just from opening the page or seeing the sidebar —
+  `LanguageModel.create()` is never called at boot, confirmed directly (0 calls until a real send or
+  click). Clicking a saved thread renders its old messages instantly (just redrawing saved text, free),
+  then separately replays them into a brand-new session via `initialPrompts` — the only moment this page
+  ever spends real context-window budget restoring history, and only for the one thread actually opened,
+  never the others sitting untouched in storage. Continuing that thread appends new messages and
+  persists them back; switching threads calls `session.destroy()` on the outgoing session first, so
+  live model state doesn't pile up. Verified end to end with Playwright (stubbed `LanguageModel`,
+  tracking real call counts): confirmed zero session creation at boot and after a reload, confirmed the
+  exact prior messages are what gets sent as `initialPrompts` when a thread is opened, confirmed
+  messages render before the replay call even resolves, and confirmed `destroy()` fires on every
+  thread switch. Companion to
+  [pages-lab's storage experiment](https://nlade-core.github.io/pages-lab/07-storage-limits/), applied
+  to a real chatbot instead of a toy comparison. Same standing caveat as every Nano feature here:
+  storage is purely local to one browser on one device — no cross-device sync, no login, nothing to
+  sync through.
 
 ## Considered, not built
 

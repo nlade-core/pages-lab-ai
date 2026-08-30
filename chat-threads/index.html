@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — chat threads</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 1000px; margin: 0 auto; }
+
+  .page-grid { display: flex; gap: 1.5rem; align-items: flex-start; }
+  .sidebar { width: 240px; flex-shrink: 0; position: sticky; top: 1.5rem; }
+  .main-col { flex: 1; min-width: 0; }
+  @media (max-width: 760px) {
+    .page-grid { flex-direction: column; }
+    .sidebar { width: 100%; position: static; }
+  }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .sidebar h2 { font-size: 0.95rem; margin-bottom: 0.6rem; }
+  #new-chat-btn { width: 100%; margin-bottom: 0.75rem; font-size: 0.9rem; }
+  #thread-list { display: flex; flex-direction: column; gap: 0.3rem; }
+  .thread-item {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.5rem 0.6rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 0.85rem;
+  }
+  .thread-item:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+  .thread-item.active { background: color-mix(in srgb, var(--accent) 18%, transparent); font-weight: 600; }
+  .thread-item .thread-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .thread-item .thread-delete {
+    background: transparent;
+    color: var(--muted);
+    border: none;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.9rem;
+    border-radius: 4px;
+  }
+  .thread-item .thread-delete:hover { background: color-mix(in srgb, var(--bad) 15%, transparent); color: var(--bad); }
+  .empty-hint { color: var(--muted); font-size: 0.8rem; padding: 0.5rem 0.6rem; }
+
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
+  }
+  .status-pill { font-weight: 600; font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
+  .status-pill.available { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .status-pill.downloadable { color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .status-pill.unavailable, .status-pill.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+  .empty-state { color: var(--muted); font-size: 0.9rem; padding: 1rem 0; }
+
+  #chat-log { display: none; flex-direction: column; gap: 0.75rem; max-height: 50vh; overflow-y: auto; margin-bottom: 1rem; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; }
+  .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
+  .msg.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+  .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .msg .md > *:first-child { margin-top: 0; }
+  .msg .md > *:last-child { margin-bottom: 0; }
+  .msg .md p, .msg .md ul, .msg .md ol { margin: 0.5rem 0; }
+  .msg .md ul, .msg .md ol { padding-left: 1.25rem; }
+  .msg .md code { background: color-mix(in srgb, var(--fg) 10%, transparent); border-radius: 4px; padding: 0.1rem 0.3rem; font-size: 0.85em; }
+  .msg .md pre { background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 6px; padding: 0.6rem; overflow-x: auto; margin: 0.5rem 0; }
+  .msg .md pre code { background: none; padding: 0; }
+
+  .demo-disabled { opacity: 0.5; }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">A Gemini Nano chat that remembers more than one conversation. Saved to your browser's own <code>localStorage</code> — nothing is sent anywhere, and nothing is loaded into the model just from opening this page. Click a saved conversation on the left and <em>that's</em> the moment it's actually replayed into a real model session; everything else just sits in your browser doing nothing until you ask for it.</p>
+    <p class="subnote">Eleventh page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, <a href="../speech-to-text/">speech to text</a>, <a href="../text-to-speech/">text to speech</a>, <a href="../chrome-ai/">Chrome's built-in AI</a>, <a href="../code-chat/">code chat</a>, <a href="../pyodide-nb/">a Pyodide notebook</a>, <a href="../thinking-chat/">thinking chat</a>, and <a href="../code-agent/">code agent</a>. Companion to <a href="https://nlade-core.github.io/pages-lab/07-storage-limits/" target="_blank" rel="noopener">pages-lab's storage experiment</a>. <b>Chrome desktop only.</b> <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="page-grid">
+      <div class="sidebar panel">
+        <h2>Conversations</h2>
+        <button id="new-chat-btn">+ New chat</button>
+        <div id="thread-list"></div>
+      </div>
+
+      <div class="main-col">
+        <div class="panel" id="chat-panel">
+          <div class="status-row">
+            <span>Prompt API (Gemini Nano)</span>
+            <span class="status-pill" id="status-pill">checking…</span>
+          </div>
+          <div class="empty-state" id="empty-state">New chat — nothing saved yet. Send a message to begin (this will start a real model session).</div>
+          <div id="chat-log"></div>
+          <div class="row">
+            <input type="text" id="chat-input" placeholder="Type a message…">
+            <button id="chat-send-btn" disabled>Send</button>
+          </div>
+          <div class="op-note" id="chat-note"></div>
+        </div>
+      </div>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script type="module">
+    // Pinned to an exact version deliberately, same reasoning as every other
+    // CDN import across pages-lab-ai.
+    import { marked } from 'https://cdn.jsdelivr.net/npm/marked@18.0.11/lib/marked.esm.js';
+
+    const statusPill = document.getElementById('status-pill');
+    const newChatBtn = document.getElementById('new-chat-btn');
+    const threadListEl = document.getElementById('thread-list');
+    const emptyStateEl = document.getElementById('empty-state');
+    const chatLog = document.getElementById('chat-log');
+    const chatInput = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send-btn');
+    const chatNote = document.getElementById('chat-note');
+
+    const SYSTEM_PROMPT = 'You are a helpful, concise assistant.';
+
+    // Namespaced deliberately -- every pages-lab-ai page shares one origin,
+    // so one shared localStorage. Without a prefix, a future page could
+    // silently clash with these keys.
+    const PREFIX = 'pages-lab-ai:chat-threads:';
+    const INDEX_KEY = PREFIX + 'index';
+    const threadKey = (id) => PREFIX + 'thread:' + id;
+
+    function loadIndex() {
+      try { return JSON.parse(localStorage.getItem(INDEX_KEY)) || []; }
+      catch { return []; }
+    }
+    function saveIndex(list) {
+      localStorage.setItem(INDEX_KEY, JSON.stringify(list));
+    }
+    function loadThreadMessages(id) {
+      try { return JSON.parse(localStorage.getItem(threadKey(id))) || []; }
+      catch { return []; }
+    }
+    function saveThreadMessages(id, msgs) {
+      localStorage.setItem(threadKey(id), JSON.stringify(msgs));
+    }
+    function deleteThread(id) {
+      localStorage.removeItem(threadKey(id));
+      saveIndex(loadIndex().filter((t) => t.id !== id));
+    }
+
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+      ]);
+    }
+
+    let promptOk = false;
+    let session = null;
+    let messages = [];
+    let activeThreadId = null; // null while on the implicit "new chat" state
+
+    async function checkCapability() {
+      if (!self.LanguageModel) {
+        statusPill.className = 'status-pill missing';
+        statusPill.textContent = 'not in this browser';
+        return;
+      }
+      try {
+        const availability = await withTimeout(LanguageModel.availability(), 5000);
+        promptOk = availability !== 'unavailable';
+        statusPill.className = 'status-pill ' + (availability === 'available' ? 'available' : availability === 'unavailable' ? 'unavailable' : 'downloadable');
+        statusPill.textContent = availability === 'downloadable' ? 'needs download' : availability;
+      } catch (e) {
+        statusPill.className = 'status-pill unavailable';
+        statusPill.textContent = 'error: ' + e.message;
+      }
+      if (promptOk) {
+        chatSendBtn.disabled = false;
+      } else {
+        document.getElementById('chat-panel').classList.add('demo-disabled');
+        chatNote.textContent = 'The Prompt API isn\'t available in this browser right now.';
+      }
+    }
+    // Deliberately does NOT create a LanguageModel session -- checking
+    // availability reads a static browser capability, it doesn't spin up any
+    // model state. Nothing here costs any context-window budget.
+    checkCapability();
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function renderMarkdown(text) {
+      return '<div class="md">' + marked.parse(escapeHtml(text)) + '</div>';
+    }
+
+    function renderChat() {
+      const hasMessages = messages.length > 0;
+      emptyStateEl.style.display = hasMessages ? 'none' : 'block';
+      chatLog.style.display = hasMessages ? 'flex' : 'none';
+      chatLog.innerHTML = messages
+        .map((m) => '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>' + renderMarkdown(m.content) + '</div>')
+        .join('');
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    function renderThreadList() {
+      const threads = loadIndex().sort((a, b) => b.updatedAt - a.updatedAt);
+      threadListEl.innerHTML = threads.length
+        ? threads.map((t) => (
+            '<div class="thread-item ' + (t.id === activeThreadId ? 'active' : '') + '" data-id="' + t.id + '">' +
+              '<span class="thread-title">' + escapeHtml(t.title) + '</span>' +
+              '<button class="thread-delete" data-id="' + t.id + '" title="Delete">×</button>' +
+            '</div>'
+          )).join('')
+        : '<div class="empty-hint">No saved conversations yet.</div>';
+    }
+    renderThreadList(); // shows whatever's already in localStorage before anything else happens
+
+    // Switching threads destroys the outgoing session -- frees the model's
+    // resources rather than leaking one live session per thread visited.
+    function destroySession() {
+      if (session) { try { session.destroy(); } catch {} }
+      session = null;
+    }
+
+    function startNewChat() {
+      destroySession();
+      activeThreadId = null;
+      messages = [];
+      renderChat();
+      renderThreadList();
+      chatNote.textContent = '';
+    }
+
+    async function openThread(id) {
+      destroySession();
+      activeThreadId = id;
+      messages = loadThreadMessages(id);
+      renderChat(); // instant -- just redrawing saved text, no model involved yet
+      renderThreadList();
+
+      if (!promptOk) return;
+      chatSendBtn.disabled = true;
+      chatNote.textContent = 'Loading this conversation into the model…';
+      try {
+        // This is the one moment this page ever spends context-window budget
+        // restoring old messages -- only for the thread actually clicked,
+        // never for the others still sitting untouched in localStorage.
+        session = await LanguageModel.create({
+          initialPrompts: [
+            { role: 'system', content: SYSTEM_PROMPT },
+            ...messages.map((m) => ({ role: m.role, content: m.content })),
+          ],
+        });
+        const usage = session.contextUsage != null && session.contextWindow != null
+          ? ' (' + session.contextUsage + '/' + session.contextWindow + ' tokens used restoring it)'
+          : '';
+        chatNote.textContent = 'Restored ' + messages.length + ' message' + (messages.length === 1 ? '' : 's') + usage + '.';
+      } catch (e) {
+        chatNote.textContent = 'Could not restore into the model: ' + e.message;
+      }
+      chatSendBtn.disabled = false;
+    }
+
+    newChatBtn.addEventListener('click', startNewChat);
+
+    threadListEl.addEventListener('click', (e) => {
+      const delBtn = e.target.closest('.thread-delete');
+      if (delBtn) {
+        const id = delBtn.dataset.id;
+        deleteThread(id);
+        if (id === activeThreadId) startNewChat(); else renderThreadList();
+        return;
+      }
+      const item = e.target.closest('.thread-item');
+      if (item) openThread(item.dataset.id);
+    });
+
+    function titleFrom(text) {
+      const t = text.trim().replace(/\s+/g, ' ');
+      return t.length > 40 ? t.slice(0, 40) + '…' : t;
+    }
+
+    async function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text || !promptOk) return;
+      chatSendBtn.disabled = true;
+      chatInput.value = '';
+      messages.push({ role: 'user', content: text });
+      messages.push({ role: 'assistant', content: '' });
+      renderChat();
+      chatNote.textContent = 'Generating…';
+
+      try {
+        if (!session) {
+          // Only reachable for a brand-new thread -- no prior messages exist
+          // to replay, so this is just the plain system prompt.
+          session = await LanguageModel.create({
+            initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
+            monitor(m) {
+              m.addEventListener('downloadprogress', (e) => {
+                chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
+              });
+            },
+          });
+        }
+
+        const stream = session.promptStreaming([{ role: 'user', content: [{ type: 'text', value: text }] }]);
+        for await (const chunk of stream) {
+          messages[messages.length - 1].content += chunk;
+          renderChat();
+        }
+
+        const isNewThread = activeThreadId === null;
+        if (isNewThread) activeThreadId = crypto.randomUUID();
+        const index = loadIndex();
+        const existing = index.find((t) => t.id === activeThreadId);
+        const title = existing ? existing.title : titleFrom(text);
+        const updated = index.filter((t) => t.id !== activeThreadId);
+        updated.push({ id: activeThreadId, title, updatedAt: Date.now() });
+        saveIndex(updated);
+        saveThreadMessages(activeThreadId, messages);
+        renderThreadList();
+
+        chatNote.textContent = 'Saved to "' + title + '".';
+      } catch (e) {
+        chatNote.textContent = 'Error: ' + e.message;
+      }
+      chatSendBtn.disabled = false;
+    }
+
+    chatSendBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+  </script>
+</body>
+</html>
