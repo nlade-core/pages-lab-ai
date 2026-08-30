@@ -90,6 +90,14 @@ CPU-only Python can't give it.
   estimated 3,500-4,000 tokens) should comfortably fit the real window with room for conversation, but
   that's an estimate, not a confirmed result — **whether the seeded chat actually works, rather than
   hitting the same error for real, is unverified until tested on real Chrome.**
+- [Pyodide notebook](https://nlade-core.github.io/pages-lab-ai/pyodide-nb/) — a minimal Jupyter-style
+  notebook: add cells, run Python in each, and every cell shares the same live interpreter (a variable
+  set in one cell is still there in the next). Runs bare Pyodide only (~11MB, no OpenCV/numpy/pillow —
+  verified directly via the real file sizes, smaller than pages-pyodide's footprint since this page
+  doesn't need those packages). Built and verified standalone, deliberately, before wiring it up as a
+  code-execution tool a chatbot could call: confirmed shared state works across cells, and — the part
+  that actually matters for a future tool-use loop — confirmed the interpreter keeps working correctly
+  in later cells even after an earlier one throws, rather than dying on the first mistake.
 
 ## Considered, not built
 

@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — pyodide notebook</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+  button.tiny { padding: 0.2rem 0.5rem; font-size: 0.8rem; }
+
+  #boot-status { color: var(--muted); font-size: 0.9rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  .workspace { display: none; }
+  .workspace.active { display: block; }
+
+  .cell {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem;
+    margin-bottom: 1rem;
+  }
+  .cell-toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+  .cell-toolbar .label { font-size: 0.8rem; color: var(--muted); font-family: ui-monospace, monospace; }
+  .cell-toolbar .actions { display: flex; gap: 0.4rem; }
+
+  .cell textarea {
+    width: 100%;
+    min-height: 4.5rem;
+    resize: vertical;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+
+  .cell-output {
+    margin-top: 0.6rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.85rem;
+    white-space: pre-wrap;
+    display: none;
+  }
+  .cell-output.ok { background: color-mix(in srgb, var(--ok) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border)); }
+  .cell-output.error { background: color-mix(in srgb, var(--bad) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--border)); color: var(--bad); }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">A minimal Jupyter-style notebook — write Python in cells, run them, see the output. Every cell shares the same running interpreter, so a variable set in one cell is still there in the next. Runs entirely via <a href="https://github.com/nlade-core/pages-pyodide" target="_blank" rel="noopener">Pyodide</a>, client-side.</p>
+    <p class="subnote">Eighth page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, <a href="../speech-to-text/">speech to text</a>, <a href="../text-to-speech/">text to speech</a>, <a href="../chrome-ai/">Chrome's built-in AI</a>, and <a href="../code-chat/">code chat</a>. Standalone for now, built to be the code-execution tool a future chatbot can call. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel" id="boot-panel">
+      <p>Loads Pyodide (plain Python, no extra packages) — about 11MB, cached by your browser after the first visit. Nothing downloads until you click.</p>
+      <button id="load-btn">Load the demo</button>
+      <div id="boot-status"></div>
+    </div>
+
+    <div class="workspace" id="workspace">
+      <div id="cells"></div>
+      <button class="secondary" id="add-cell-btn">+ Add cell</button>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.0/full/pyodide.js" integrity="sha384-aD6ek5pFVnSSMGK0qubk9ZJdMYGjPs8F6jdJaDJiyZbTcH9jLWR4LJNJ7yY430qI" crossorigin="anonymous"></script>
+  <script type="module">
+    const bootStatus = document.getElementById('boot-status');
+    const loadBtn = document.getElementById('load-btn');
+    const workspace = document.getElementById('workspace');
+    const cellsEl = document.getElementById('cells');
+    const addCellBtn = document.getElementById('add-cell-btn');
+
+    let pyodide = null;
+    let cells = [];
+    let nextId = 1;
+
+    // The exact "glue" mechanism a code-execution tool needs: capture the
+    // final expression's value and any print() output separately, and turn
+    // a Python exception into a clean, catchable result rather than letting
+    // it crash the page. Verified in isolation before building this page:
+    // the interpreter keeps working correctly on later cells even after an
+    // earlier one throws, which is what makes a notebook (not just a REPL
+    // that dies on the first mistake) actually work.
+    async function runCode(code) {
+      let stdout = '';
+      pyodide.setStdout({ batched: (text) => { stdout += text + '\n'; } });
+      try {
+        const result = await pyodide.runPythonAsync(code);
+        return { ok: true, result: result !== undefined ? String(result) : null, stdout };
+      } catch (e) {
+        return { ok: false, error: e.message, stdout };
+      } finally {
+        pyodide.setStdout({});
+      }
+    }
+
+    loadBtn.addEventListener('click', async () => {
+      loadBtn.disabled = true;
+      bootStatus.textContent = 'Loading Python runtime…';
+      const t0 = performance.now();
+      pyodide = await loadPyodide();
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      bootStatus.textContent = 'Ready — loaded in ' + elapsed + 's.';
+      document.getElementById('boot-panel').style.display = 'none';
+      workspace.classList.add('active');
+
+      // Two cells by default, deliberately showing shared state across
+      // cells -- the one thing that actually distinguishes a notebook from
+      // a plain "run this snippet" demo.
+      addCell('x = 21\nx');
+      addCell('x * 2  # uses the value from the cell above');
+      renderCells();
+    });
+
+    function addCell(code) {
+      cells.push({ id: nextId++, code: code || '', status: null, output: '' });
+    }
+
+    function renderCells() {
+      cellsEl.innerHTML = cells.map((cell) => `
+        <div class="cell" data-id="${cell.id}">
+          <div class="cell-toolbar">
+            <span class="label">In [${cell.id}]</span>
+            <div class="actions">
+              <button class="tiny run-btn">Run ▶</button>
+              <button class="tiny secondary delete-btn">Delete</button>
+            </div>
+          </div>
+          <textarea class="cell-code" spellcheck="false">${cell.code.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>
+          <div class="cell-output ${cell.status || ''}" style="${cell.output ? 'display:block;' : ''}">${cell.output}</div>
+        </div>
+      `).join('');
+
+      cellsEl.querySelectorAll('.cell').forEach((el) => {
+        const id = Number(el.dataset.id);
+        const cell = cells.find((c) => c.id === id);
+        el.querySelector('.cell-code').addEventListener('input', (e) => { cell.code = e.target.value; });
+        el.querySelector('.run-btn').addEventListener('click', () => runCell(cell, el));
+        el.querySelector('.delete-btn').addEventListener('click', () => {
+          cells = cells.filter((c) => c.id !== id);
+          renderCells();
+        });
+      });
+    }
+
+    async function runCell(cell, el) {
+      const runBtn = el.querySelector('.run-btn');
+      const outputEl = el.querySelector('.cell-output');
+      runBtn.disabled = true;
+      outputEl.style.display = 'block';
+      outputEl.className = 'cell-output';
+      outputEl.textContent = 'Running…';
+
+      const { ok, result, error, stdout } = await runCode(cell.code);
+      cell.status = ok ? 'ok' : 'error';
+      cell.output = ok
+        ? (stdout + (result !== null ? result : '')).trim() || '(no output)'
+        : (stdout + error).trim();
+      outputEl.className = 'cell-output ' + cell.status;
+      outputEl.textContent = cell.output;
+      runBtn.disabled = false;
+    }
+
+    addCellBtn.addEventListener('click', () => {
+      addCell('');
+      renderCells();
+      // Focus the newly added cell's textarea.
+      const textareas = cellsEl.querySelectorAll('.cell-code');
+      textareas[textareas.length - 1].focus();
+    });
+  </script>
+</body>
+</html>
