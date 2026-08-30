@@ -101,7 +101,20 @@ CPU-only Python can't give it.
   has a Gemini Nano copilot sidebar — a sticky side panel (stacks below on narrow viewports) reusing
   `code-chat`/`chrome-ai`'s exact chat pipeline with a Python-debugging system prompt, for pasting
   errors or questions manually. Not the automatic tool-use loop (the model doesn't run code itself yet)
-  — just a faster way to ask for help than switching pages.
+  — just a faster way to ask for help than switching pages. Real-use finding, worth knowing before
+  building on this: tested for actual Python-debugging help on real Chrome — "not that brilliant,"
+  consistent with Gemini Nano's own documented small-model/factual-accuracy limits. Code debugging
+  specifically isn't a task this model is optimized for.
+- [Thinking chat](https://nlade-core.github.io/pages-lab-ai/thinking-chat/) — same Gemini Nano chat,
+  with a "thinking" toggle. Chrome's Prompt API has no native reasoning mode (that's an Android ML
+  Kit-only feature, confirmed by checking — `enableThinking`/`thoughtProcess` don't exist on the web
+  API); this fakes it with a system prompt plus `responseConstraint` (structured JSON output,
+  `{reasoning, answer}`), with the reasoning hidden behind a native `<details>` disclosure arrow by
+  default. Real constraint: structured output needs the full response before it can be parsed against
+  the schema, so "thinking on" doesn't stream token-by-token the way "thinking off" still does — an
+  honest tradeoff, not hidden from the visitor. Verified: `responseConstraint` doesn't throw even
+  against Chromium's non-compliant stub output, the JSON-parse fallback handles a non-JSON response
+  cleanly without crashing, and the native disclosure toggle genuinely hides/reveals on click.
 
 ## Considered, not built
 

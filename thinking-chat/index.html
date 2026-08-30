@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>pages-lab-ai — code chat</title>
+<title>pages-lab-ai — thinking chat</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
@@ -49,7 +49,6 @@
   .layout { max-width: 720px; margin: 0 auto; }
 
   h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
-  h2 { font-size: 1rem; margin-bottom: 0.5rem; }
   .tagline { color: var(--muted); margin-bottom: 0.5rem; }
   .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
 
@@ -73,17 +72,14 @@
   button:hover { opacity: 0.9; }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-  .status-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    font-size: 0.9rem;
-    margin-bottom: 1rem;
-  }
+  .status-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.9rem; margin-bottom: 0.75rem; }
   .status-pill { font-weight: 600; font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
   .status-pill.available { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
   .status-pill.downloadable { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
   .status-pill.unavailable, .status-pill.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  .toggle-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.9rem; }
+  .toggle-row label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
 
   .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
   input[type="text"] {
@@ -98,12 +94,14 @@
   }
 
   .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+  .demo-disabled { opacity: 0.5; }
 
-  #chat-log { display: none; flex-direction: column; gap: 0.75rem; max-height: 50vh; overflow-y: auto; margin-bottom: 1rem; }
-  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; }
+  #chat-log { display: none; flex-direction: column; gap: 0.75rem; max-height: 55vh; overflow-y: auto; margin-bottom: 1rem; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 90%; }
   .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
   .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
   .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+
   .msg .md > *:first-child { margin-top: 0; }
   .msg .md > *:last-child { margin-bottom: 0; }
   .msg .md p, .msg .md ul, .msg .md ol { margin: 0.5rem 0; }
@@ -112,7 +110,20 @@
   .msg .md pre { background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 6px; padding: 0.6rem; overflow-x: auto; margin: 0.5rem 0; }
   .msg .md pre code { background: none; padding: 0; }
 
-  .demo-disabled { opacity: 0.5; }
+  .thinking {
+    margin-bottom: 0.5rem;
+    border: 1px dashed var(--border);
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+  }
+  .thinking summary {
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 0.8rem;
+    user-select: none;
+  }
+  .thinking summary::marker { color: var(--muted); }
+  .thinking .md { margin-top: 0.5rem; color: var(--muted); font-size: 0.85rem; }
 
   footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
   a { color: var(--accent); }
@@ -121,18 +132,20 @@
 <body>
   <div class="layout">
     <h1>pages-lab-ai</h1>
-    <p class="tagline">A chatbot that can discuss this page's own source code — fetched fresh, seeded into Gemini Nano as context, no retrieval, no second model. Chat about it, then check the real source yourself.</p>
-    <p class="subnote">Seventh page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, <a href="../speech-to-text/">speech to text</a>, <a href="../text-to-speech/">text to speech</a>, <a href="../chrome-ai/">Chrome's built-in AI</a>, <a href="../pyodide-nb/">a Pyodide notebook</a>, and <a href="../thinking-chat/">thinking chat</a>. Built directly on that sixth page's chat pipeline. <b>Chrome desktop only.</b> <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+    <p class="tagline">The same Gemini Nano chat, with a "thinking" toggle. Chrome's own Prompt API has no native reasoning mode (that's an Android ML Kit-only feature) — this fakes it with prompting plus structured output, hidden behind a disclosure arrow by default so it doesn't clutter the conversation.</p>
+    <p class="subnote">Ninth page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, <a href="../speech-to-text/">speech to text</a>, <a href="../text-to-speech/">text to speech</a>, <a href="../chrome-ai/">Chrome's built-in AI</a>, <a href="../code-chat/">code chat</a>, and <a href="../pyodide-nb/">a Pyodide notebook</a>. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
 
     <div class="panel" id="chat-panel">
       <div class="status-row">
         <span>Prompt API (Gemini Nano)</span>
         <span class="status-pill" id="status-pill">checking…</span>
       </div>
-      <div class="op-note" id="fetch-note">Fetching this page's own source…</div>
+      <div class="toggle-row">
+        <label><input type="checkbox" id="thinking-toggle" checked> 🧠 Thinking mode</label>
+      </div>
       <div id="chat-log"></div>
       <div class="row">
-        <input type="text" id="chat-input" placeholder="Ask something about this page's code…">
+        <input type="text" id="chat-input" placeholder="Ask something…">
         <button id="chat-send-btn" disabled>Send</button>
       </div>
       <div class="op-note" id="chat-note"></div>
@@ -147,15 +160,24 @@
     import { marked } from 'https://cdn.jsdelivr.net/npm/marked@18.0.11/lib/marked.esm.js';
 
     const statusPill = document.getElementById('status-pill');
-    const fetchNote = document.getElementById('fetch-note');
+    const thinkingToggle = document.getElementById('thinking-toggle');
     const chatLog = document.getElementById('chat-log');
     const chatInput = document.getElementById('chat-input');
     const chatSendBtn = document.getElementById('chat-send-btn');
     const chatNote = document.getElementById('chat-note');
 
-    // Same hang-without-timeout lesson learned building the chrome-ai page --
-    // Translator's availability() once froze silently with no timeout; apply
-    // the same guard here even though only one API is checked.
+    const SYSTEM_PROMPT = 'You are a helpful, concise assistant. When asked to reason before ' +
+      'answering, think step by step first, then give a clear final answer.';
+
+    const THINKING_SCHEMA = {
+      type: 'object',
+      properties: {
+        reasoning: { type: 'string' },
+        answer: { type: 'string' },
+      },
+      required: ['reasoning', 'answer'],
+    };
+
     function withTimeout(promise, ms) {
       return Promise.race([
         promise,
@@ -164,6 +186,8 @@
     }
 
     let promptOk = false;
+    let session = null;
+    let messages = []; // { role, content, reasoning?: string|null }
 
     async function checkCapability() {
       if (!self.LanguageModel) {
@@ -178,49 +202,20 @@
         statusPill.textContent = availability === 'downloadable' ? 'needs download' : availability;
       } catch (e) {
         statusPill.className = 'status-pill unavailable';
-        statusPill.textContent = 'error: ' + e.message;
+        statusPill.textContent = 'error';
       }
-      if (!promptOk) {
+      if (promptOk) {
+        chatSendBtn.disabled = false;
+      } else {
         document.getElementById('chat-panel').classList.add('demo-disabled');
         chatNote.textContent = 'The Prompt API isn\'t available in this browser right now.';
       }
     }
-
-    // Fetch this page's own deployed source once, fresh -- a plain HTTP fetch
-    // always returns the pristine static file, unlike reading the live DOM
-    // (which would reflect anything already rendered into the chat log by
-    // the time you read it).
-    let sourcePromise = fetch(location.href).then((r) => r.text());
-
-    async function buildSystemPrompt() {
-      const source = await sourcePromise;
-      fetchNote.textContent = 'Fetched this page\'s own source (' + source.length + ' characters).';
-      return 'You are explaining this web page\'s own source code to a visitor. Below is the ' +
-        'complete, real HTML/CSS/JavaScript source of the page you are running on. Answer ' +
-        'questions using only this code. If something isn\'t shown in it, say so plainly ' +
-        'instead of guessing or inventing behavior.\n\n---\n' + source + '\n---';
-    }
-
-    const capabilityPromise = checkCapability();
-    sourcePromise.catch((e) => { fetchNote.textContent = 'Failed to fetch page source: ' + e.message; });
-
-    // Enable the send button once both the capability check and the source
-    // fetch have settled (whichever finishes last).
-    Promise.allSettled([capabilityPromise, sourcePromise]).then(() => {
-      if (promptOk) chatSendBtn.disabled = false;
-    });
-
-    let session = null;
-    let messages = [];
+    checkCapability();
 
     function escapeHtml(s) {
       return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
-
-    // Escape first, then Markdown-parse the escaped text -- same safety
-    // pattern as chrome-ai's chat: markdown syntax never uses &, <, or >, so
-    // pre-escaping doesn't break formatting, and any literal HTML/script in
-    // the model's output renders as inert visible text instead of real markup.
     function renderMarkdown(text) {
       return '<div class="md">' + marked.parse(escapeHtml(text)) + '</div>';
     }
@@ -228,7 +223,15 @@
     function renderChat() {
       chatLog.style.display = messages.length ? 'flex' : 'none';
       chatLog.innerHTML = messages
-        .map((m) => '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>' + renderMarkdown(m.content) + '</div>')
+        .map((m) => {
+          let html = '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>';
+          if (m.reasoning) {
+            html += '<details class="thinking"><summary>▸ Show thinking</summary>' + renderMarkdown(m.reasoning) + '</details>';
+          }
+          html += renderMarkdown(m.content);
+          html += '</div>';
+          return html;
+        })
         .join('');
       chatLog.scrollTop = chatLog.scrollHeight;
     }
@@ -236,19 +239,19 @@
     async function sendChat() {
       const text = chatInput.value.trim();
       if (!text || !promptOk) return;
+      const thinkingOn = thinkingToggle.checked;
       chatSendBtn.disabled = true;
       chatInput.value = '';
       messages.push({ role: 'user', content: text });
-      messages.push({ role: 'assistant', content: '' });
+      const assistantMsg = { role: 'assistant', content: '', reasoning: null };
+      messages.push(assistantMsg);
       renderChat();
-      chatNote.textContent = 'Generating…';
 
       try {
         if (!session) {
-          chatNote.textContent = 'Starting session (reads this page\'s source into context, may download the model on first use)…';
-          const systemPrompt = await buildSystemPrompt();
+          chatNote.textContent = 'Starting session (may download the model on first use)…';
           session = await LanguageModel.create({
-            initialPrompts: [{ role: 'system', content: systemPrompt }],
+            initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
             monitor(m) {
               m.addEventListener('downloadprogress', (e) => {
                 chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
@@ -257,17 +260,40 @@
           });
         }
 
-        const t0 = performance.now();
-        const stream = session.promptStreaming([{ role: 'user', content: [{ type: 'text', value: text }] }]);
-        for await (const chunk of stream) {
-          messages[messages.length - 1].content += chunk;
+        if (thinkingOn) {
+          // Structured output needs the full response before it can be
+          // parsed against the schema -- no token-by-token streaming for
+          // this path, unlike the plain mode below.
+          chatNote.textContent = 'Thinking…';
+          const t0 = performance.now();
+          const raw = await session.prompt(
+            [{ role: 'user', content: [{ type: 'text', value: text }] }],
+            { responseConstraint: THINKING_SCHEMA }
+          );
+          const elapsed = performance.now() - t0;
+          try {
+            const parsed = JSON.parse(raw);
+            assistantMsg.reasoning = parsed.reasoning || null;
+            assistantMsg.content = parsed.answer || raw;
+          } catch {
+            // Defensive fallback -- shouldn't happen given responseConstraint,
+            // but don't crash the page if the model ever returns something
+            // that doesn't parse.
+            assistantMsg.content = raw;
+          }
           renderChat();
+          chatNote.textContent = 'Generated in ' + elapsed.toFixed(0) + 'ms (thinking mode, non-streaming).';
+        } else {
+          chatNote.textContent = 'Generating…';
+          const t0 = performance.now();
+          const stream = session.promptStreaming([{ role: 'user', content: [{ type: 'text', value: text }] }]);
+          for await (const chunk of stream) {
+            assistantMsg.content += chunk;
+            renderChat();
+          }
+          const elapsed = performance.now() - t0;
+          chatNote.textContent = 'Generated in ' + elapsed.toFixed(0) + 'ms, real Gemini Nano inference.';
         }
-        const elapsed = performance.now() - t0;
-        const usage = session.contextUsage != null && session.contextWindow != null
-          ? ' (' + session.contextUsage + '/' + session.contextWindow + ' tokens used)'
-          : '';
-        chatNote.textContent = 'Generated in ' + elapsed.toFixed(0) + 'ms, real Gemini Nano inference' + usage + '.';
       } catch (e) {
         chatNote.textContent = 'Error: ' + e.message;
       }
