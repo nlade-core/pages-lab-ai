@@ -78,6 +78,18 @@ CPU-only Python can't give it.
   tested on the user's real Chrome and Gemini Nano correctly processed both the attached image and
   audio alongside the text — the first fully-confirmed real inference result this page has gotten,
   not just Chromium's stub.
+- [Code chat](https://nlade-core.github.io/pages-lab-ai/code-chat/) — a chatbot for *this page's own
+  source*: fetches its own deployed HTML/CSS/JS once via a plain same-origin `fetch(location.href)`,
+  seeds it whole into Gemini Nano's `initialPrompts` (a system-prompt mechanism not used anywhere else
+  in this repo), then answers questions grounded in that source — no retrieval, no second model,
+  deliberately an MVP. A richer version (retrieval over the *whole* repo via page 2's embeddings,
+  chunked to fit MiniLM's real 256-token effective limit) was designed in detail but deliberately cut
+  for v1. **Real finding while building:** hit a `QuotaExceededError` ("The input is too large") in
+  testing — traced to Playwright's Chromium reporting a stub `contextWindow` of only 1,000 tokens,
+  dramatically smaller than real Gemini Nano's documented ~9,216. This page's source (~11.8KB, an
+  estimated 3,500-4,000 tokens) should comfortably fit the real window with room for conversation, but
+  that's an estimate, not a confirmed result — **whether the seeded chat actually works, rather than
+  hitting the same error for real, is unverified until tested on real Chrome.**
 
 ## Considered, not built
 
