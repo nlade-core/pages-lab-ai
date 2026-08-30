@@ -130,10 +130,17 @@
   }
 
   #chat-log { display: none; flex-direction: column; gap: 0.75rem; max-height: 40vh; overflow-y: auto; }
-  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; white-space: pre-wrap; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; }
   .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
   .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
   .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .msg .md > *:first-child { margin-top: 0; }
+  .msg .md > *:last-child { margin-bottom: 0; }
+  .msg .md p, .msg .md ul, .msg .md ol { margin: 0.5rem 0; }
+  .msg .md ul, .msg .md ol { padding-left: 1.25rem; }
+  .msg .md code { background: color-mix(in srgb, var(--fg) 10%, transparent); border-radius: 4px; padding: 0.1rem 0.3rem; font-size: 0.85em; }
+  .msg .md pre { background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 6px; padding: 0.6rem; overflow-x: auto; margin: 0.5rem 0; }
+  .msg .md pre code { background: none; padding: 0; }
   .msg img.attach { max-width: 100%; max-height: 160px; border-radius: 6px; margin-bottom: 0.4rem; }
   .msg audio.attach { width: 100%; margin-bottom: 0.4rem; }
 
@@ -222,6 +229,10 @@
   </div>
 
   <script type="module">
+    // Pinned to an exact version deliberately, same reasoning as every other
+    // CDN import across pages-lab-ai.
+    import { marked } from 'https://cdn.jsdelivr.net/npm/marked@18.0.11/lib/marked.esm.js';
+
     const capList = document.getElementById('cap-list');
 
     const APIS = [
@@ -400,6 +411,17 @@
       renderAttachChips();
     });
 
+    // Escape first, then Markdown-parse the escaped text -- markdown's own
+    // syntax never uses &, <, or >, so this doesn't break formatting, and it
+    // means any literal HTML/script in the model's raw output renders as
+    // inert visible text instead of executable markup. Deliberately not
+    // relying on marked's own sanitization: modern marked dropped that in
+    // favor of "use a separate sanitizer if you need one," so pre-escaping
+    // is the simpler, dependency-free way to stay safe here.
+    function renderMarkdown(text) {
+      return '<div class="md">' + marked.parse(escapeHtml(text)) + '</div>';
+    }
+
     function renderChat() {
       chatLog.style.display = messages.length ? 'flex' : 'none';
       chatLog.innerHTML = messages
@@ -407,7 +429,7 @@
           let html = '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>';
           if (m.imageUrl) html += '<img class="attach" src="' + m.imageUrl + '">';
           if (m.audioUrl) html += '<audio class="attach" controls src="' + m.audioUrl + '"></audio>';
-          html += escapeHtml(m.content) + '</div>';
+          html += renderMarkdown(m.content) + '</div>';
           return html;
         })
         .join('');
