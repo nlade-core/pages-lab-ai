@@ -97,7 +97,11 @@ CPU-only Python can't give it.
   doesn't need those packages). Built and verified standalone, deliberately, before wiring it up as a
   code-execution tool a chatbot could call: confirmed shared state works across cells, and — the part
   that actually matters for a future tool-use loop — confirmed the interpreter keeps working correctly
-  in later cells even after an earlier one throws, rather than dying on the first mistake.
+  in later cells even after an earlier one throws, rather than dying on the first mistake. Now also
+  has a Gemini Nano copilot sidebar — a sticky side panel (stacks below on narrow viewports) reusing
+  `code-chat`/`chrome-ai`'s exact chat pipeline with a Python-debugging system prompt, for pasting
+  errors or questions manually. Not the automatic tool-use loop (the model doesn't run code itself yet)
+  — just a faster way to ask for help than switching pages.
 
 ## Considered, not built
 
