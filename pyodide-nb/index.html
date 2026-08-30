@@ -44,7 +44,15 @@
     padding: 3rem 1.5rem;
   }
 
-  .layout { max-width: 720px; margin: 0 auto; }
+  .layout { max-width: 1100px; margin: 0 auto; }
+
+  .page-grid { display: flex; gap: 1.5rem; align-items: flex-start; }
+  .main-col { flex: 1; min-width: 0; }
+  .sidebar { width: 320px; flex-shrink: 0; position: sticky; top: 1.5rem; }
+  @media (max-width: 800px) {
+    .page-grid { flex-direction: column; }
+    .sidebar { width: 100%; position: static; }
+  }
 
   h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
   .tagline { color: var(--muted); margin-bottom: 0.5rem; }
@@ -118,6 +126,43 @@
   .cell-output.ok { background: color-mix(in srgb, var(--ok) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border)); }
   .cell-output.error { background: color-mix(in srgb, var(--bad) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--border)); color: var(--bad); }
 
+  /* --- Copilot sidebar --- */
+  .op-note { color: var(--muted); font-size: 0.8rem; margin-top: 0.5rem; min-height: 1.2em; }
+  .sidebar h2 { font-size: 0.95rem; margin-bottom: 0.5rem; }
+  .status-row { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 0.75rem; }
+  .status-pill { font-weight: 600; font-size: 0.75rem; padding: 0.1rem 0.4rem; border-radius: 4px; }
+  .status-pill.available { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .status-pill.downloadable { color: var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); }
+  .status-pill.unavailable, .status-pill.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  #chat-log { display: none; flex-direction: column; gap: 0.6rem; max-height: 45vh; overflow-y: auto; margin-bottom: 0.75rem; }
+  .msg { padding: 0.5rem 0.7rem; border-radius: 8px; font-size: 0.85rem; }
+  .msg.user { background: color-mix(in srgb, var(--accent) 15%, var(--bg)); }
+  .msg.assistant { background: var(--bg); border: 1px solid var(--border); }
+  .msg .role { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 0.15rem; }
+  .msg .md > *:first-child { margin-top: 0; }
+  .msg .md > *:last-child { margin-bottom: 0; }
+  .msg .md p, .msg .md ul, .msg .md ol { margin: 0.4rem 0; }
+  .msg .md ul, .msg .md ol { padding-left: 1.1rem; }
+  .msg .md code { background: color-mix(in srgb, var(--fg) 10%, transparent); border-radius: 4px; padding: 0.1rem 0.25rem; font-size: 0.85em; }
+  .msg .md pre { background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 6px; padding: 0.5rem; overflow-x: auto; margin: 0.4rem 0; }
+  .msg .md pre code { background: none; padding: 0; }
+
+  .sidebar textarea {
+    width: 100%;
+    min-height: 4rem;
+    resize: vertical;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.85rem;
+    margin-bottom: 0.5rem;
+  }
+  .sidebar button { width: 100%; font-size: 0.85rem; }
+  .demo-disabled { opacity: 0.5; }
+
   footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
   a { color: var(--accent); }
 </style>
@@ -128,15 +173,31 @@
     <p class="tagline">A minimal Jupyter-style notebook — write Python in cells, run them, see the output. Every cell shares the same running interpreter, so a variable set in one cell is still there in the next. Runs entirely via <a href="https://github.com/nlade-core/pages-pyodide" target="_blank" rel="noopener">Pyodide</a>, client-side.</p>
     <p class="subnote">Eighth page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, <a href="../speech-to-text/">speech to text</a>, <a href="../text-to-speech/">text to speech</a>, <a href="../chrome-ai/">Chrome's built-in AI</a>, and <a href="../code-chat/">code chat</a>. Standalone for now, built to be the code-execution tool a future chatbot can call. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
 
-    <div class="panel" id="boot-panel">
-      <p>Loads Pyodide (plain Python, no extra packages) — about 11MB, cached by your browser after the first visit. Nothing downloads until you click.</p>
-      <button id="load-btn">Load the demo</button>
-      <div id="boot-status"></div>
-    </div>
+    <div class="page-grid">
+      <div class="main-col">
+        <div class="panel" id="boot-panel">
+          <p>Loads Pyodide (plain Python, no extra packages) — about 11MB, cached by your browser after the first visit. Nothing downloads until you click.</p>
+          <button id="load-btn">Load the demo</button>
+          <div id="boot-status"></div>
+        </div>
 
-    <div class="workspace" id="workspace">
-      <div id="cells"></div>
-      <button class="secondary" id="add-cell-btn">+ Add cell</button>
+        <div class="workspace" id="workspace">
+          <div id="cells"></div>
+          <button class="secondary" id="add-cell-btn">+ Add cell</button>
+        </div>
+      </div>
+
+      <div class="sidebar panel" id="copilot-panel">
+        <h2>Copilot</h2>
+        <div class="status-row">
+          <span>Gemini Nano</span>
+          <span class="status-pill" id="status-pill">checking…</span>
+        </div>
+        <div id="chat-log"></div>
+        <textarea id="chat-input" placeholder="Paste an error or ask a question…"></textarea>
+        <button id="chat-send-btn" disabled>Send</button>
+        <div class="op-note" id="chat-note"></div>
+      </div>
     </div>
 
     <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
@@ -144,6 +205,10 @@
 
   <script src="https://cdn.jsdelivr.net/pyodide/v0.28.0/full/pyodide.js" integrity="sha384-aD6ek5pFVnSSMGK0qubk9ZJdMYGjPs8F6jdJaDJiyZbTcH9jLWR4LJNJ7yY430qI" crossorigin="anonymous"></script>
   <script type="module">
+    // Pinned to an exact version deliberately, same reasoning as every other
+    // CDN import across pages-lab-ai.
+    import { marked } from 'https://cdn.jsdelivr.net/npm/marked@18.0.11/lib/marked.esm.js';
+
     const bootStatus = document.getElementById('boot-status');
     const loadBtn = document.getElementById('load-btn');
     const workspace = document.getElementById('workspace');
@@ -247,6 +312,108 @@
       // Focus the newly added cell's textarea.
       const textareas = cellsEl.querySelectorAll('.cell-code');
       textareas[textareas.length - 1].focus();
+    });
+
+    // --- Copilot sidebar: manual copy-paste help, not an automatic tool-use
+    // loop -- paste an error or ask a question, same chat pipeline as
+    // code-chat/chrome-ai, just with a Python-debugging system prompt. ---
+    const statusPill = document.getElementById('status-pill');
+    const chatLog = document.getElementById('chat-log');
+    const chatInput = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send-btn');
+    const chatNote = document.getElementById('chat-note');
+
+    const SYSTEM_PROMPT = 'You are a concise Python debugging assistant embedded next to an ' +
+      'in-browser notebook (Pyodide, running in the visitor\'s own browser). The visitor may paste ' +
+      'error messages, tracebacks, or code and ask what\'s wrong or how to fix it. Be practical and ' +
+      'brief. If something is ambiguous, say so rather than guessing.';
+
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+      ]);
+    }
+
+    let promptOk = false;
+    let session = null;
+    let messages = [];
+
+    async function checkCapability() {
+      if (!self.LanguageModel) {
+        statusPill.className = 'status-pill missing';
+        statusPill.textContent = 'not in this browser';
+        return;
+      }
+      try {
+        const availability = await withTimeout(LanguageModel.availability(), 5000);
+        promptOk = availability !== 'unavailable';
+        statusPill.className = 'status-pill ' + (availability === 'available' ? 'available' : availability === 'unavailable' ? 'unavailable' : 'downloadable');
+        statusPill.textContent = availability === 'downloadable' ? 'needs download' : availability;
+      } catch (e) {
+        statusPill.className = 'status-pill unavailable';
+        statusPill.textContent = 'error';
+      }
+      if (promptOk) {
+        chatSendBtn.disabled = false;
+      } else {
+        document.getElementById('copilot-panel').classList.add('demo-disabled');
+        chatNote.textContent = 'Not available in this browser.';
+      }
+    }
+    checkCapability();
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    function renderMarkdown(text) {
+      return '<div class="md">' + marked.parse(escapeHtml(text)) + '</div>';
+    }
+    function renderChat() {
+      chatLog.style.display = messages.length ? 'flex' : 'none';
+      chatLog.innerHTML = messages
+        .map((m) => '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>' + renderMarkdown(m.content) + '</div>')
+        .join('');
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    async function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text || !promptOk) return;
+      chatSendBtn.disabled = true;
+      chatInput.value = '';
+      messages.push({ role: 'user', content: text });
+      messages.push({ role: 'assistant', content: '' });
+      renderChat();
+      chatNote.textContent = 'Generating…';
+
+      try {
+        if (!session) {
+          chatNote.textContent = 'Starting session (may download the model on first use)…';
+          session = await LanguageModel.create({
+            initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
+            monitor(m) {
+              m.addEventListener('downloadprogress', (e) => {
+                chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
+              });
+            },
+          });
+        }
+        const stream = session.promptStreaming([{ role: 'user', content: [{ type: 'text', value: text }] }]);
+        for await (const chunk of stream) {
+          messages[messages.length - 1].content += chunk;
+          renderChat();
+        }
+        chatNote.textContent = '';
+      } catch (e) {
+        chatNote.textContent = 'Error: ' + e.message;
+      }
+      chatSendBtn.disabled = false;
+    }
+
+    chatSendBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(); }
     });
   </script>
 </body>
