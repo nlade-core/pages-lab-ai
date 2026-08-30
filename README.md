@@ -115,6 +115,25 @@ CPU-only Python can't give it.
   honest tradeoff, not hidden from the visitor. Verified: `responseConstraint` doesn't throw even
   against Chromium's non-compliant stub output, the JSON-parse fallback handles a non-JSON response
   cleanly without crashing, and the native disclosure toggle genuinely hides/reveals on click.
+- [Code agent](https://nlade-core.github.io/pages-lab-ai/code-agent/) — the tool-use loop `pyodide-nb`
+  and `thinking-chat` were both built toward: Gemini Nano decides, per turn, whether to run real Python
+  or answer directly. Chrome's Prompt API has no native tool/function-calling primitive, so this is the
+  manual version — every turn is constrained via `responseConstraint` to a fixed
+  `{action, code, answer}` shape; `action: "run_python"` turns are actually executed by `pyodide-nb`'s
+  verified `runCode()` helper (real Pyodide, not a simulation), the real stdout/result/error is fed back
+  in as the next turn, and the loop repeats (capped at 4 tool calls) until the model emits
+  `action: "final_answer"`. Loading the Pyodide tool (~11MB) is a separate opt-in click from starting
+  the chat, so plain conversation works even before it's loaded — the model is told the tool's
+  unavailable and recovers by answering without it, rather than the page throwing. Verified end to end
+  with Playwright by stubbing `LanguageModel` deterministically (real Chromium has no Prompt API at
+  all): a genuine `run_python("2 + 2")` call round-trips through real Pyodide, returns `4`, and the
+  fed-back result reaches a correctly-rendered final answer; separately confirmed the non-JSON fallback
+  (mirroring Chromium's own non-compliant stub), the tool-unavailable recovery path, and the
+  max-tool-calls cap all behave correctly rather than crashing or hanging. Actual answer quality/real
+  Gemini Nano tool-use judgment is unconfirmed on real Chrome, same standing caveat as every other Nano
+  feature here — and given `pyodide-nb`'s copilot and `thinking-chat` both landed on "functional but not
+  brilliant," temper expectations for how well the model actually *decides* when to reach for the tool,
+  even though the execution step itself is reliably correct regardless.
 
 ## Considered, not built
 

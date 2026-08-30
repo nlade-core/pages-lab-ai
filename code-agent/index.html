@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — code agent</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+  .status-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.9rem;
+    margin-bottom: 0.6rem;
+  }
+  .status-pill { font-weight: 600; font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
+  .status-pill.available, .status-pill.ready { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .status-pill.downloadable, .status-pill.notready { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .status-pill.unavailable, .status-pill.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  .tool-boot { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+  .tool-boot p { flex: 1; color: var(--muted); font-size: 0.85rem; }
+
+  .row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+  input[type="text"] {
+    flex: 1;
+    min-width: 200px;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.95rem;
+  }
+
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  #chat-log { display: none; flex-direction: column; gap: 0.75rem; max-height: 55vh; overflow-y: auto; margin-bottom: 1rem; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 92%; }
+  .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
+  .msg.assistant { align-self: flex-start; background: var(--panel); border: 1px solid var(--border); }
+  .msg.tool { align-self: flex-start; background: var(--panel); border: 1px dashed var(--border); }
+  .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .msg .md > *:first-child { margin-top: 0; }
+  .msg .md > *:last-child { margin-bottom: 0; }
+  .msg .md p, .msg .md ul, .msg .md ol { margin: 0.5rem 0; }
+  .msg .md ul, .msg .md ol { padding-left: 1.25rem; }
+  .msg .md code { background: color-mix(in srgb, var(--fg) 10%, transparent); border-radius: 4px; padding: 0.1rem 0.3rem; font-size: 0.85em; }
+  .msg .md pre { background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 6px; padding: 0.6rem; overflow-x: auto; margin: 0.5rem 0; }
+  .msg .md pre code { background: none; padding: 0; }
+
+  .tool-code {
+    background: color-mix(in srgb, var(--fg) 8%, transparent);
+    border-radius: 6px;
+    padding: 0.6rem;
+    overflow-x: auto;
+    margin-bottom: 0.5rem;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.85rem;
+  }
+  .tool-output {
+    padding: 0.5rem 0.65rem;
+    border-radius: 6px;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 0.8rem;
+    white-space: pre-wrap;
+  }
+  .tool-output.ok { background: color-mix(in srgb, var(--ok) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--ok) 35%, var(--border)); }
+  .tool-output.error { background: color-mix(in srgb, var(--bad) 10%, var(--bg)); border: 1px solid color-mix(in srgb, var(--bad) 35%, var(--border)); color: var(--bad); }
+  .tool-output.pending { background: var(--bg); border: 1px solid var(--border); color: var(--muted); }
+
+  .demo-disabled { opacity: 0.5; }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">A chatbot that can actually run Python to check its own answers. Gemini Nano decides, on its own, when to call a real code-execution tool — writes the code, waits for the real result, reads it back — before giving you a final answer. No fake tool use: every "ran code" step below is genuinely executed by <a href="https://github.com/nlade-core/pages-pyodide" target="_blank" rel="noopener">Pyodide</a> in your browser.</p>
+    <p class="subnote">Tenth page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, <a href="../speech-to-text/">speech to text</a>, <a href="../text-to-speech/">text to speech</a>, <a href="../chrome-ai/">Chrome's built-in AI</a>, <a href="../code-chat/">code chat</a>, <a href="../pyodide-nb/">a Pyodide notebook</a>, and <a href="../thinking-chat/">thinking chat</a>. The tool-use loop that page 8's notebook and page 9's structured output were both built toward. <b>Chrome desktop only.</b> <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel" id="chat-panel">
+      <div class="status-row">
+        <span>Prompt API (Gemini Nano)</span>
+        <span class="status-pill" id="status-pill">checking…</span>
+      </div>
+      <div class="status-row">
+        <span>Python tool (Pyodide)</span>
+        <span class="status-pill notready" id="pyodide-pill">not loaded</span>
+      </div>
+      <div class="tool-boot">
+        <p>The tool is ~11MB, cached after the first load. Chat works without it — the model just can't run code, only talk about it.</p>
+        <button id="load-tool-btn">Load the code tool</button>
+      </div>
+      <div id="chat-log"></div>
+      <div class="row">
+        <input type="text" id="chat-input" placeholder="Ask something that might need real computation…">
+        <button id="chat-send-btn" disabled>Send</button>
+      </div>
+      <div class="op-note" id="chat-note"></div>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.28.0/full/pyodide.js" integrity="sha384-aD6ek5pFVnSSMGK0qubk9ZJdMYGjPs8F6jdJaDJiyZbTcH9jLWR4LJNJ7yY430qI" crossorigin="anonymous"></script>
+  <script type="module">
+    // Pinned to an exact version deliberately, same reasoning as every other
+    // CDN import across pages-lab-ai.
+    import { marked } from 'https://cdn.jsdelivr.net/npm/marked@18.0.11/lib/marked.esm.js';
+
+    const statusPill = document.getElementById('status-pill');
+    const pyodidePill = document.getElementById('pyodide-pill');
+    const loadToolBtn = document.getElementById('load-tool-btn');
+    const chatLog = document.getElementById('chat-log');
+    const chatInput = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send-btn');
+    const chatNote = document.getElementById('chat-note');
+
+    const SYSTEM_PROMPT = 'You are a helpful assistant with access to exactly one tool: ' +
+      'run_python(code), which executes Python in a real interpreter and returns its printed ' +
+      'output plus the value of the final expression. You have no other tools -- no internet, ' +
+      'no file access. Respond to every message with a single JSON object matching the required ' +
+      'schema. Set "action" to "run_python" when running code would make your answer more ' +
+      'reliable (arithmetic, counting, sorting, date math, string manipulation, anything you ' +
+      'might get wrong from memory alone) -- put real, complete Python in "code" and leave ' +
+      '"answer" as an empty string. Set "action" to "final_answer" once you have enough ' +
+      'information to answer the user directly -- put your answer in "answer" and leave "code" ' +
+      'as an empty string. Don\'t run code for questions that don\'t need computation.';
+
+    const AGENT_SCHEMA = {
+      type: 'object',
+      properties: {
+        action: { type: 'string', enum: ['run_python', 'final_answer'] },
+        code: { type: 'string' },
+        answer: { type: 'string' },
+      },
+      required: ['action', 'code', 'answer'],
+    };
+
+    const MAX_TOOL_TURNS = 4;
+
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+      ]);
+    }
+
+    let promptOk = false;
+    let session = null;
+    let messages = []; // { role: 'user'|'assistant', content } or { role: 'tool', code, output, status }
+
+    let pyodide = null;
+    let pyodideReady = false;
+
+    function updateSendGate() {
+      chatSendBtn.disabled = !promptOk;
+    }
+
+    async function checkCapability() {
+      if (!self.LanguageModel) {
+        statusPill.className = 'status-pill missing';
+        statusPill.textContent = 'not in this browser';
+        return;
+      }
+      try {
+        const availability = await withTimeout(LanguageModel.availability(), 5000);
+        promptOk = availability !== 'unavailable';
+        statusPill.className = 'status-pill ' + (availability === 'available' ? 'available' : availability === 'unavailable' ? 'unavailable' : 'downloadable');
+        statusPill.textContent = availability === 'downloadable' ? 'needs download' : availability;
+      } catch (e) {
+        statusPill.className = 'status-pill unavailable';
+        statusPill.textContent = 'error: ' + e.message;
+      }
+      if (!promptOk) {
+        document.getElementById('chat-panel').classList.add('demo-disabled');
+        chatNote.textContent = 'The Prompt API isn\'t available in this browser right now.';
+      }
+      updateSendGate();
+    }
+    checkCapability();
+
+    // Exact same runCode() glue verified in isolation on pyodide-nb before
+    // being combined with anything -- captures stdout and the final
+    // expression's value separately, turns a Python exception into a clean,
+    // catchable result instead of crashing the page or the tool-use loop.
+    async function runCode(code) {
+      let stdout = '';
+      pyodide.setStdout({ batched: (text) => { stdout += text + '\n'; } });
+      try {
+        const result = await pyodide.runPythonAsync(code);
+        return { ok: true, result: result !== undefined ? String(result) : null, stdout };
+      } catch (e) {
+        return { ok: false, error: e.message, stdout };
+      } finally {
+        pyodide.setStdout({});
+      }
+    }
+
+    loadToolBtn.addEventListener('click', async () => {
+      loadToolBtn.disabled = true;
+      pyodidePill.textContent = 'loading…';
+      const t0 = performance.now();
+      pyodide = await loadPyodide();
+      pyodideReady = true;
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      pyodidePill.className = 'status-pill ready';
+      pyodidePill.textContent = 'ready (' + elapsed + 's)';
+      loadToolBtn.textContent = 'Loaded';
+    });
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    // Escape first, then Markdown-parse the escaped text -- same safety
+    // pattern as every other chat page in this repo.
+    function renderMarkdown(text) {
+      return '<div class="md">' + marked.parse(escapeHtml(text)) + '</div>';
+    }
+
+    function renderChat() {
+      chatLog.style.display = messages.length ? 'flex' : 'none';
+      chatLog.innerHTML = messages
+        .map((m) => {
+          if (m.role === 'tool') {
+            const outHtml = m.output == null
+              ? '<div class="tool-output pending">running…</div>'
+              : '<div class="tool-output ' + (m.status || '') + '">' + escapeHtml(m.output) + '</div>';
+            return '<div class="msg tool"><span class="role">tool call — run_python</span>' +
+              '<pre class="tool-code"><code>' + escapeHtml(m.code) + '</code></pre>' + outHtml + '</div>';
+          }
+          return '<div class="msg ' + m.role + '"><span class="role">' + m.role + '</span>' + renderMarkdown(m.content) + '</div>';
+        })
+        .join('');
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    async function sendChat() {
+      const text = chatInput.value.trim();
+      if (!text || !promptOk) return;
+      chatSendBtn.disabled = true;
+      chatInput.value = '';
+      messages.push({ role: 'user', content: text });
+      renderChat();
+
+      try {
+        if (!session) {
+          chatNote.textContent = 'Starting session (may download the model on first use)…';
+          session = await LanguageModel.create({
+            initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
+            monitor(m) {
+              m.addEventListener('downloadprogress', (e) => {
+                chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
+              });
+            },
+          });
+        }
+
+        // The Prompt API has no native tool-calling primitive -- this loop is
+        // the manual version: constrain each turn's output to a fixed
+        // {action, code, answer} shape, execute run_python turns for real via
+        // Pyodide, and feed the actual result back in as the next user turn.
+        // The session is stateful (each prompt() call appends to its own
+        // history), so only the *new* content needs to be sent each time.
+        let turnInput = [{ role: 'user', content: [{ type: 'text', value: text }] }];
+        let steps = 0;
+        let finalAnswer = null;
+
+        while (steps < MAX_TOOL_TURNS && finalAnswer === null) {
+          steps++;
+          chatNote.textContent = 'Thinking (step ' + steps + ' of ' + MAX_TOOL_TURNS + ')…';
+          const raw = await session.prompt(turnInput, { responseConstraint: AGENT_SCHEMA });
+
+          let decision;
+          try {
+            decision = JSON.parse(raw);
+          } catch {
+            // Defensive fallback, same as thinking-chat -- if the model (or a
+            // non-compliant stub, e.g. Chromium's) doesn't return valid JSON,
+            // treat the raw text as the final answer instead of crashing.
+            finalAnswer = raw;
+            break;
+          }
+
+          if (decision.action === 'run_python' && decision.code && decision.code.trim()) {
+            const toolMsg = { role: 'tool', code: decision.code, output: null, status: null };
+            messages.push(toolMsg);
+            renderChat();
+
+            if (!pyodideReady) {
+              const note = 'Tool unavailable: the Python runtime isn\'t loaded. Click "Load the code tool" above, or answer without it.';
+              toolMsg.output = note;
+              toolMsg.status = 'error';
+              renderChat();
+              turnInput = [{ role: 'user', content: [{ type: 'text', value: note }] }];
+              continue;
+            }
+
+            const { ok, result, error, stdout } = await runCode(decision.code);
+            const outputText = ok
+              ? (stdout + (result !== null ? result : '')).trim() || '(no output)'
+              : (stdout + error).trim();
+            toolMsg.output = outputText;
+            toolMsg.status = ok ? 'ok' : 'error';
+            renderChat();
+
+            turnInput = [{ role: 'user', content: [{ type: 'text', value: 'Tool result for run_python:\n' + outputText }] }];
+          } else if (decision.action === 'final_answer') {
+            finalAnswer = decision.answer || '(empty answer)';
+          } else {
+            // Schema-shaped but not actionable (missing/unrecognized action,
+            // or run_python with empty code) -- use whatever text came back
+            // rather than looping forever on a decision that can't be acted on.
+            finalAnswer = decision.answer || raw;
+          }
+        }
+
+        if (finalAnswer === null) {
+          finalAnswer = '(Stopped after ' + MAX_TOOL_TURNS + ' tool calls without a final answer.)';
+        }
+        messages.push({ role: 'assistant', content: finalAnswer });
+        renderChat();
+        chatNote.textContent = 'Done after ' + steps + ' step' + (steps === 1 ? '' : 's') + ', real Gemini Nano + real Python.';
+      } catch (e) {
+        chatNote.textContent = 'Error: ' + e.message;
+      }
+      chatSendBtn.disabled = false;
+    }
+
+    chatSendBtn.addEventListener('click', sendChat);
+    chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+  </script>
+</body>
+</html>
