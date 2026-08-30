@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — zero-shot classification</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --bar: #0a58ca;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --bar: #6ea8fe;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  h2 { font-size: 1rem; margin-bottom: 0.5rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  #boot-status { color: var(--muted); font-size: 0.9rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #drop-zone.dragover { border-color: var(--accent); color: var(--fg); }
+  #drop-zone input { display: none; }
+
+  .workspace { display: none; }
+  .workspace.active { display: block; }
+
+  #preview {
+    width: 100%;
+    max-height: 320px;
+    object-fit: contain;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: repeating-conic-gradient(#8883 0% 25%, transparent 0% 50%) 50% / 20px 20px;
+    margin-bottom: 1rem;
+  }
+
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+
+  textarea {
+    width: 100%;
+    min-height: 110px;
+    resize: vertical;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.4;
+  }
+  .field { margin-bottom: 1rem; }
+  .field-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.35rem; }
+
+  .toggle-row { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; font-size: 0.85rem; color: var(--muted); }
+  .toggle-row label { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+  .template-preview { color: var(--muted); font-size: 0.8rem; margin-top: 0.35rem; font-family: ui-monospace, monospace; }
+
+  #results { margin-top: 1.25rem; }
+  .result-row { margin-bottom: 0.6rem; }
+  .result-label { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.9rem; margin-bottom: 0.25rem; }
+  .result-label .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .result-label .pct { color: var(--muted); flex-shrink: 0; }
+  .result-bar-track { background: var(--border); border-radius: 4px; height: 8px; overflow: hidden; }
+  .result-bar-fill { background: var(--bar); height: 100%; border-radius: 4px; }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>pages-lab-ai</h1>
+    <p class="tagline">Zero-shot image classification — MobileCLIP, running entirely in your browser. Upload a photo, then type <em>your own</em> candidate labels — anything at all, not a fixed 1000-class list. Ranks the image against whatever you propose.</p>
+    <p class="subnote" style="margin-top:-0.35rem;">Real bug caught building this: the quantized vision encoder gives measurably wrong rankings on a real test photo (confirmed directly — this dog photo's top match flips from "dog" to "screenshot of computer code" when the vision tower is quantized). Ships fp32 vision (~43MB) + quantized text (~41MB), same fp32-for-vision lesson as the image classifier page, this time caught before shipping rather than after.</p>
+    <p class="subnote">Twelfth page in the pages-lab-ai family, alongside the <a href="../">image classifier</a>, <a href="../semantic-search/">semantic search</a>, <a href="../chat/">chat</a>, <a href="../speech-to-text/">speech to text</a>, <a href="../text-to-speech/">text to speech</a>, <a href="../chrome-ai/">Chrome's built-in AI</a>, <a href="../code-chat/">code chat</a>, <a href="../pyodide-nb/">a Pyodide notebook</a>, <a href="../thinking-chat/">thinking chat</a>, <a href="../code-agent/">code agent</a>, and <a href="../chat-threads/">chat threads</a>. Mechanically the first page's image pipeline plus the second page's embed-and-rank-by-cosine-similarity, recombined. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel" id="boot-panel">
+      <p>Loads MobileCLIP — about 85MB combined (fp32 vision + quantized text), cached by your browser after the first visit. Nothing downloads until you click.</p>
+      <button id="load-btn">Load the demo</button>
+      <div id="boot-status"></div>
+    </div>
+
+    <div class="panel workspace" id="workspace">
+      <div id="drop-zone">
+        <p><strong>Drop a photo here</strong>, or click to choose one.</p>
+        <input type="file" id="file-input" accept="image/*">
+      </div>
+
+      <div id="image-section" style="display:none;">
+        <img id="preview" alt="Uploaded photo">
+        <div class="op-note" id="embed-note"></div>
+        <button class="secondary" id="new-image-btn">Choose a different photo</button>
+      </div>
+    </div>
+
+    <div class="panel workspace" id="labels-panel" style="display:none;">
+      <h2>Candidate labels</h2>
+      <p class="subnote">One per line — type whatever you want to check this image against.</p>
+      <div class="field">
+        <textarea id="labels-input">a dog
+a cat
+a car
+a screenshot of computer code
+a person
+food</textarea>
+      </div>
+      <div class="toggle-row">
+        <label><input type="checkbox" id="autophrase-toggle" checked> Auto-phrase labels (recommended)</label>
+      </div>
+      <div class="template-preview" id="template-preview"></div>
+      <button id="compare-btn">Compare</button>
+      <div class="op-note" id="compare-note"></div>
+      <div id="results"></div>
+    </div>
+
+    <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
+  </div>
+
+  <script type="module">
+    // Pinned to an exact version deliberately, same reasoning as every other
+    // CDN import across pages-lab-ai.
+    import {
+      CLIPTextModelWithProjection,
+      CLIPVisionModelWithProjection,
+      AutoTokenizer,
+      AutoProcessor,
+      RawImage,
+    } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/transformers.min.js';
+
+    const MODEL_ID = 'Xenova/mobileclip_s0';
+    // CLIP's text tower was trained on a fixed 77-token context length, unlike
+    // a typical BERT-style encoder that pads to the longest sequence in a
+    // batch. Padding to the batch's own longest line (the naive first attempt
+    // here) throws a real ONNX Runtime broadcast error at inference time --
+    // caught directly while building this, not assumed from documentation.
+    const CLIP_MAX_LENGTH = 77;
+
+    const bootStatus = document.getElementById('boot-status');
+    const loadBtn = document.getElementById('load-btn');
+    const workspace = document.getElementById('workspace');
+    const labelsPanel = document.getElementById('labels-panel');
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const imageSection = document.getElementById('image-section');
+    const preview = document.getElementById('preview');
+    const embedNote = document.getElementById('embed-note');
+    const newImageBtn = document.getElementById('new-image-btn');
+    const labelsInput = document.getElementById('labels-input');
+    const autophraseToggle = document.getElementById('autophrase-toggle');
+    const templatePreview = document.getElementById('template-preview');
+    const compareBtn = document.getElementById('compare-btn');
+    const compareNote = document.getElementById('compare-note');
+    const resultsEl = document.getElementById('results');
+
+    let tokenizer = null;
+    let textModel = null;
+    let processor = null;
+    let visionModel = null;
+    let imageVec = null;
+
+    function norm(vec) {
+      const n = Math.sqrt(vec.reduce((s, x) => s + x * x, 0));
+      return vec.map((x) => x / n);
+    }
+    function cosine(a, b) {
+      let dot = 0;
+      for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+      return dot; // both already L2-normalized -- dot product == cosine similarity, same as semantic search page
+    }
+
+    loadBtn.addEventListener('click', async () => {
+      loadBtn.disabled = true;
+      bootStatus.textContent = 'Loading model weights…';
+      const t0 = performance.now();
+      try {
+        // Vision fp32 deliberately -- confirmed directly (not assumed) that
+        // this model's quantized vision exports give wrong rankings on a real
+        // test photo. Text quantizes fine, same "quantization hurts conv
+        // layers, not attention layers" pattern already seen with MiniLM.
+        [tokenizer, textModel, processor, visionModel] = await Promise.all([
+          AutoTokenizer.from_pretrained(MODEL_ID),
+          CLIPTextModelWithProjection.from_pretrained(MODEL_ID, { dtype: 'q8' }),
+          AutoProcessor.from_pretrained(MODEL_ID),
+          CLIPVisionModelWithProjection.from_pretrained(MODEL_ID, { dtype: 'fp32' }),
+        ]);
+      } catch (e) {
+        bootStatus.textContent = 'Failed to load: ' + e.message;
+        loadBtn.disabled = false;
+        return;
+      }
+      const elapsed = ((performance.now() - t0) / 1000).toFixed(1);
+      bootStatus.textContent = 'Ready — loaded in ' + elapsed + 's.';
+      document.getElementById('boot-panel').style.display = 'none';
+      workspace.classList.add('active');
+    });
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) embedImage(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) embedImage(fileInput.files[0]);
+    });
+
+    async function embedImage(file) {
+      const url = URL.createObjectURL(file);
+      preview.src = url;
+      dropZone.style.display = 'none';
+      imageSection.style.display = 'block';
+      labelsPanel.style.display = 'none';
+      resultsEl.innerHTML = '';
+      embedNote.textContent = 'Encoding image…';
+
+      const t0 = performance.now();
+      const image = await RawImage.read(url);
+      const inputs = await processor(image);
+      const { image_embeds } = await visionModel(inputs);
+      imageVec = norm(Array.from(image_embeds.data));
+      const elapsed = performance.now() - t0;
+
+      embedNote.textContent = 'Encoded in ' + elapsed.toFixed(0) + 'ms, real MobileCLIP vision inference.';
+      labelsPanel.style.display = 'block';
+    }
+
+    newImageBtn.addEventListener('click', () => {
+      dropZone.style.display = 'block';
+      imageSection.style.display = 'none';
+      labelsPanel.style.display = 'none';
+      fileInput.value = '';
+      preview.src = '';
+      imageVec = null;
+      resultsEl.innerHTML = '';
+    });
+
+    function updateTemplatePreview() {
+      const firstLine = labelsInput.value.split('\n').map((s) => s.trim()).filter(Boolean)[0] || 'dog';
+      templatePreview.textContent = autophraseToggle.checked
+        ? 'Sent to the model as: "a photo of ' + firstLine + '"'
+        : 'Sent to the model exactly as typed: "' + firstLine + '"';
+    }
+    labelsInput.addEventListener('input', updateTemplatePreview);
+    autophraseToggle.addEventListener('change', updateTemplatePreview);
+    updateTemplatePreview();
+
+    async function runCompare() {
+      if (!imageVec) return;
+      const rawLabels = labelsInput.value.split('\n').map((s) => s.trim()).filter(Boolean);
+      if (rawLabels.length === 0) {
+        compareNote.textContent = 'Add at least one label.';
+        return;
+      }
+      compareBtn.disabled = true;
+      compareNote.textContent = 'Comparing…';
+      resultsEl.innerHTML = '';
+
+      // CLIP's zero-shot accuracy is sensitive to phrasing -- "a photo of a
+      // dog" scores meaningfully better than the bare word "dog", since that's
+      // closer to the caption-style text the model was actually trained on.
+      const phrasedLabels = autophraseToggle.checked
+        ? rawLabels.map((l) => 'a photo of ' + l)
+        : rawLabels;
+
+      const t0 = performance.now();
+      const textInputs = tokenizer(phrasedLabels, {
+        padding: 'max_length',
+        max_length: CLIP_MAX_LENGTH,
+        truncation: true,
+      });
+      const { text_embeds } = await textModel(textInputs);
+      const dim = imageVec.length;
+      const scored = rawLabels.map((label, i) => {
+        const vec = norm(Array.from(text_embeds.data.slice(i * dim, (i + 1) * dim)));
+        return { label, score: cosine(imageVec, vec) };
+      });
+      scored.sort((a, b) => b.score - a.score);
+      const elapsed = performance.now() - t0;
+
+      const maxScore = Math.max(...scored.map((s) => s.score), 0.0001);
+      resultsEl.innerHTML = scored.map((s) => {
+        const pct = (s.score * 100).toFixed(1);
+        const barWidth = Math.max(0, Math.min(100, (s.score / maxScore) * 100)).toFixed(1);
+        return '<div class="result-row">' +
+          '<div class="result-label"><span class="txt">' + s.label.replace(/</g, '&lt;') + '</span><span class="pct">' + pct + '%</span></div>' +
+          '<div class="result-bar-track"><div class="result-bar-fill" style="width:' + barWidth + '%"></div></div>' +
+          '</div>';
+      }).join('');
+
+      compareNote.textContent = 'Compared in ' + elapsed.toFixed(0) + 'ms, real MobileCLIP inference, computed just now.';
+      compareBtn.disabled = false;
+    }
+
+    compareBtn.addEventListener('click', runCompare);
+  </script>
+</body>
+</html>

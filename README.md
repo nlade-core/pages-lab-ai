@@ -152,24 +152,30 @@ CPU-only Python can't give it.
   to a real chatbot instead of a toy comparison. Same standing caveat as every Nano feature here:
   storage is purely local to one browser on one device — no cross-device sync, no login, nothing to
   sync through.
+- [Zero-shot classification](https://nlade-core.github.io/pages-lab-ai/clip/) — type your own candidate
+  labels instead of being stuck with ImageNet's fixed, dated 1000-class vocabulary. Mechanically page
+  1's image pipeline + page 2's embed-and-rank-by-cosine-similarity, recombined — CLIP (`Xenova/mobileclip_s0`)
+  outputs a 512-number embedding per image or per text string, no classification head of its own. Real
+  bug caught building this, correcting the earlier "parked" research note: the quantized vision export
+  isn't merely unavailable, it's **measurably wrong** — confirmed directly on a real test photo, a black
+  Labrador (the same photo that caught page 1's MobileNetV2 quantization bug): fp32 vision correctly
+  ranks "a dog" highest (23.7%, clearly separated); the q8/uint8 quantized vision export flips the top
+  result to "a screenshot of computer code" instead. Shipped fp32 vision (~43.4MB, real measured size)
+  + quantized text (~40.8MB) ≈ 85MB total — quantizing the text tower is safe, same "damages conv
+  layers, not attention layers" pattern already seen with MiniLM. A second, separate real bug caught
+  before ever writing browser code (found testing the model in Node first): CLIP's text tower expects
+  inputs padded to its fixed 77-token training context length, not padded to the batch's own longest
+  line like a typical encoder — the naive approach throws a real ONNX Runtime broadcast error
+  (`axis == 1 || axis == largest was false`) instead of running. Also ships the label-phrasing UX this
+  needs beyond a plain model swap: an "auto-phrase" toggle wraps bare words as `"a photo of {label}"`
+  (CLIP's zero-shot accuracy is genuinely sensitive to this — verified directly, not assumed) with a
+  live preview of exactly what text gets sent to the model. Verified end to end in a real browser
+  against the actual downloaded weights (not stubbed — this is an ordinary transformers.js model, fully
+  functional in plain Chromium): real image encoding, real label comparison, correct top-ranked result
+  on a real photo, and the reset-to-a-new-photo flow all confirmed via Playwright.
 
 ## Considered, not built
 
-- **Zero-shot / open-vocabulary classification (CLIP-style)** — user types their own candidate labels
-  instead of being stuck with ImageNet's fixed, dated 1000-class vocabulary (no "person," no
-  "screenshot," lots of oddly narrow categories). Mechanically it's page 1's image encoder + page 2's
-  embed-and-rank-by-cosine-similarity, recombined — CLIP itself just outputs a 512-number embedding
-  vector per image or per text string, no classification head; the ranked-percentage output is
-  assembled downstream the same way page 2 already does it. Looked into `Xenova/mobileclip_s0`
-  (Apple's on-device-optimized CLIP variant, not the standard 606MB/154MB ViT-B/32): its own
-  transformers.js config forces the vision tower to fp32 regardless of requested dtype, which reads as
-  the maintainers already knowing the quantized vision tower isn't trustworthy — same failure class as
-  MobileNetV2's, caught by them instead of by us this time. Realistic footprint is fp32 vision (~45.5MB)
-  + quantized text (~42.8MB) ≈ 88MB combined — heavier than pages 1/2, still well short of
-  WebLLM/diffusion territory, and doesn't need WebGPU. Also needs UX work beyond the model swap: CLIP's
-  zero-shot accuracy is sensitive to label phrasing (`"a photo of a dog"` scores meaningfully better
-  than bare `"dog"`), so a raw text box would under-sell it. Still worth building — the natural pick
-  for the next page.
 - **Stable Diffusion** via ONNX Runtime Web — checked real component sizes (`aislamov`'s browser-ready
   ONNX conversions): base SD 2.1 (needs 25-50 diffusion steps/image) is text encoder 681MB + UNet
   1.75GB + VAE ~236MB ≈ 2.67GB total. An LCM-distilled variant (needs only 4-8 steps) is ≈ 2.2GB —
