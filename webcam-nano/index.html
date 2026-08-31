@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — webcam + Gemini Nano</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  .cap-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0;
+    font-size: 0.9rem;
+  }
+  .cap-status { font-weight: 600; font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
+  .cap-status.available { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .cap-status.downloadable { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .cap-status.unavailable, .cap-status.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  #webcam-video {
+    width: 100%;
+    border-radius: 8px;
+    background: #000;
+    margin-bottom: 1rem;
+    display: none;
+  }
+
+  #caption-box {
+    min-height: 3.5rem;
+    font-size: 1.15rem;
+    padding: 0.9rem 1rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+    display: none;
+  }
+
+  .note { color: var(--muted); font-size: 0.85rem; }
+  .demo-disabled { opacity: 0.55; }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>Webcam + Gemini Nano</h1>
+    <p class="tagline">Point your camera at something. Chrome's on-device Gemini Nano describes each frame, one at a time.</p>
+    <p class="subnote">
+      Not real-time video understanding — the Prompt API only accepts single still images, not a video
+      stream. This grabs one frame, waits for the model to finish describing it, then grabs the next.
+      Expect a caption every second or two, not 30fps captioning. Everything runs on-device: the camera
+      feed never leaves your machine, nothing is uploaded anywhere. Chrome desktop only. Part of
+      <a href="../">pages-lab-ai</a> — <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">source</a>.
+    </p>
+
+    <div class="panel">
+      <div class="cap-row">
+        <span>Prompt API (LanguageModel)</span>
+        <span class="cap-status" id="cap-status">checking…</span>
+      </div>
+    </div>
+
+    <div class="panel" id="webcam-panel">
+      <button id="start-btn">Start webcam</button>
+      <button class="secondary" id="stop-btn" style="display:none;">Stop</button>
+
+      <video id="webcam-video" autoplay playsinline muted></video>
+      <canvas id="capture-canvas" style="display:none;"></canvas>
+
+      <div id="caption-box"></div>
+      <p class="note" id="status-note"></p>
+    </div>
+  </div>
+
+  <script type="module">
+    const capStatus = document.getElementById('cap-status');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const webcamVideo = document.getElementById('webcam-video');
+    const captureCanvas = document.getElementById('capture-canvas');
+    const captionBox = document.getElementById('caption-box');
+    const statusNote = document.getElementById('status-note');
+
+    // Same hang-protection as chrome-ai: availability() has been observed to
+    // hang indefinitely rather than resolve or reject in some environments.
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+      ]);
+    }
+
+    async function checkCapability() {
+      if (!self.LanguageModel) {
+        capStatus.textContent = 'not in this browser';
+        capStatus.classList.add('missing');
+        return false;
+      }
+      try {
+        const availability = await withTimeout(LanguageModel.availability(), 5000);
+        const usable = availability !== 'unavailable';
+        capStatus.textContent = availability === 'available' ? 'available' : usable ? 'needs download' : 'unavailable';
+        capStatus.classList.add(availability === 'available' ? 'available' : usable ? 'downloadable' : 'unavailable');
+        return usable;
+      } catch (e) {
+        capStatus.textContent = 'error: ' + e.message;
+        capStatus.classList.add('unavailable');
+        return false;
+      }
+    }
+
+    checkCapability().then((usable) => {
+      if (!usable) {
+        document.getElementById('webcam-panel').classList.add('demo-disabled');
+        startBtn.disabled = true;
+        statusNote.textContent = 'The Prompt API isn\'t available in this browser right now.';
+      }
+    });
+
+    // System prompt fixed once; each frame is otherwise a fresh, independent
+    // session (see describeFrame) rather than one growing conversation --
+    // a live loop feeding image after image into a single session's history
+    // would eventually burn through Gemini Nano's ~9K token context and hit
+    // QuotaExceededError. Recreating a stateless session per frame trades a
+    // little session-creation overhead for never having a growth problem.
+    const SYSTEM_PROMPT = 'You are narrating a live camera feed for a sighted user standing right ' +
+      'there. You will be shown one still photo captured just now from their webcam. In one short, ' +
+      'plain sentence, describe what is currently visible. Do not mention that this is a photo, image, ' +
+      'screenshot, or webcam capture -- describe the scene directly, as if narrating it live. No ' +
+      'disclaimers or safety caveats unless something genuinely concerning is visible.';
+
+    const MAX_DIMENSION = 480;
+    let webcamStream = null;
+    let webcamActive = false;
+    let frameCount = 0;
+
+    async function captureFrameBlob() {
+      const w = webcamVideo.videoWidth;
+      const h = webcamVideo.videoHeight;
+      const scale = Math.min(1, MAX_DIMENSION / Math.max(w, h));
+      captureCanvas.width = Math.round(w * scale);
+      captureCanvas.height = Math.round(h * scale);
+      const ctx = captureCanvas.getContext('2d');
+      ctx.drawImage(webcamVideo, 0, 0, captureCanvas.width, captureCanvas.height);
+      return new Promise((resolve) => captureCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+    }
+
+    async function describeFrame(blob) {
+      const session = await LanguageModel.create({
+        expectedInputs: [{ type: 'image' }],
+        initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
+      });
+      try {
+        const t0 = performance.now();
+        const text = await session.prompt([{
+          role: 'user',
+          content: [
+            { type: 'image', value: blob },
+            { type: 'text', value: 'What do you see right now?' },
+          ],
+        }]);
+        return { text, elapsed: performance.now() - t0 };
+      } finally {
+        session.destroy();
+      }
+    }
+
+    async function runLoop() {
+      while (webcamActive) {
+        try {
+          const blob = await captureFrameBlob();
+          const { text, elapsed } = await describeFrame(blob);
+          if (!webcamActive) break;
+          frameCount++;
+          captionBox.textContent = text;
+          statusNote.textContent = 'Frame #' + frameCount + ', ' + (elapsed / 1000).toFixed(1) +
+            's, real Gemini Nano inference.';
+        } catch (e) {
+          if (!webcamActive) break;
+          statusNote.textContent = 'Error: ' + e.message;
+        }
+      }
+    }
+
+    startBtn.addEventListener('click', async () => {
+      try {
+        webcamStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 480 } } });
+      } catch (e) {
+        statusNote.textContent = 'Could not access webcam: ' + e.message;
+        return;
+      }
+      webcamVideo.srcObject = webcamStream;
+      await new Promise((resolve) => { webcamVideo.onloadedmetadata = resolve; });
+
+      startBtn.style.display = 'none';
+      stopBtn.style.display = 'inline-block';
+      webcamVideo.style.display = 'block';
+      captionBox.style.display = 'block';
+      captionBox.textContent = '';
+      statusNote.textContent = 'Analyzing first frame…';
+      frameCount = 0;
+      webcamActive = true;
+      runLoop();
+    });
+
+    stopBtn.addEventListener('click', () => {
+      webcamActive = false;
+      if (webcamStream) webcamStream.getTracks().forEach((t) => t.stop());
+      webcamStream = null;
+      webcamVideo.style.display = 'none';
+      captionBox.style.display = 'none';
+      statusNote.textContent = '';
+      startBtn.style.display = 'inline-block';
+      stopBtn.style.display = 'none';
+    });
+  </script>
+</body>
+</html>

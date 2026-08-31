@@ -174,6 +174,24 @@ CPU-only Python can't give it.
   functional in plain Chromium): real image encoding, real label comparison, correct top-ranked result
   on a real photo, and the reset-to-a-new-photo flow all confirmed via Playwright.
 
+- [Webcam captioning](https://nlade-core.github.io/pages-lab-ai/webcam-nano/) — point your camera at
+  something, Gemini Nano describes each frame. Not real-time video understanding: the Prompt API only
+  accepts single still images, not a video stream, so this grabs one frame, waits for the model to
+  finish describing it, then grabs the next — a caption every second or two, not literal live video.
+  Each frame is its own stateless session (created, prompted, destroyed) rather than one growing
+  conversation, deliberately: feeding image after image into a single session's history would eventually
+  burn through Nano's ~9K token context and hit `QuotaExceededError`, and there's no reason to pay that
+  cost when each frame's description doesn't depend on the last one anyway. Reuses page 1's webcam
+  capture/downscale-to-canvas code and `chrome-ai`'s multimodal image-input session pattern almost
+  verbatim — no new mechanics, pure recombination, same as `clip`. Verified end to end with Playwright,
+  stubbing `LanguageModel` deterministically (real Chromium has no Prompt API): zero session creation at
+  load, one `create()`/`destroy()` pair per completed frame with `expectedInputs` correctly declaring
+  image support and a seeded system prompt, the rendered caption matches the (stubbed) model output, and
+  the capture loop provably stops for good after Stop is clicked rather than continuing in the
+  background. Real Gemini Nano output quality (does it actually narrate the scene usefully, and how long
+  a real image-inference round trip takes) is unconfirmed until tested on real Chrome, same standing
+  caveat as every other Nano feature in this repo.
+
 ## Considered, not built
 
 - **Stable Diffusion** via ONNX Runtime Web — checked real component sizes (`aislamov`'s browser-ready
