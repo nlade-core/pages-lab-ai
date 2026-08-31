@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — video + Gemini Nano</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+
+  .cap-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0;
+    font-size: 0.9rem;
+  }
+  .cap-status { font-weight: 600; font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
+  .cap-status.available { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .cap-status.downloadable { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .cap-status.unavailable, .cap-status.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  #drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 10px;
+    padding: 2.5rem 1rem;
+    text-align: center;
+    color: var(--muted);
+    cursor: pointer;
+  }
+  #drop-zone.dragover { border-color: var(--accent); color: var(--fg); }
+  #drop-zone input { display: none; }
+
+  #source-video {
+    width: 100%;
+    max-height: 320px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #000;
+    margin-bottom: 1rem;
+    display: none;
+  }
+
+  .note { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.2em; }
+
+  #transcript { margin-top: 1rem; }
+  .transcript-row { display: flex; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
+  .transcript-row:last-child { border-bottom: none; }
+  .transcript-time { color: var(--muted); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .transcript-caption.error { color: var(--bad); }
+
+  .demo-disabled { opacity: 0.55; }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>Video + Gemini Nano</h1>
+    <p class="tagline">Upload a video clip. Chrome's on-device Gemini Nano describes one frame per second and builds a timestamped transcript.</p>
+    <p class="subnote">
+      Frame-by-frame, not real video understanding: the Prompt API only accepts single still images, so
+      this samples one frame per second of the clip and analyzes each independently -- a 90-second video
+      means 90 separate model calls, run one at a time, not in parallel. Everything runs on-device: the
+      file never leaves your machine, nothing is uploaded anywhere. Chrome desktop only. Part of
+      <a href="../">pages-lab-ai</a> — <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">source</a>.
+    </p>
+
+    <div class="panel">
+      <div class="cap-row">
+        <span>Prompt API (LanguageModel)</span>
+        <span class="cap-status" id="cap-status">checking…</span>
+      </div>
+    </div>
+
+    <div class="panel" id="upload-panel">
+      <div id="drop-zone">
+        <p><strong>Drop a video here</strong>, or click to choose one.</p>
+        <input type="file" id="file-input" accept="video/*">
+      </div>
+    </div>
+
+    <div class="panel" id="workspace" style="display:none;">
+      <video id="source-video" controls muted></video>
+      <canvas id="capture-canvas" style="display:none;"></canvas>
+
+      <button id="analyze-btn">Analyze</button>
+      <button class="secondary" id="reset-btn">Choose a different video</button>
+
+      <p class="note" id="status-note"></p>
+      <div id="transcript"></div>
+    </div>
+  </div>
+
+  <script type="module">
+    const capStatus = document.getElementById('cap-status');
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const uploadPanel = document.getElementById('upload-panel');
+    const workspace = document.getElementById('workspace');
+    const sourceVideo = document.getElementById('source-video');
+    const captureCanvas = document.getElementById('capture-canvas');
+    const analyzeBtn = document.getElementById('analyze-btn');
+    const resetBtn = document.getElementById('reset-btn');
+    const statusNote = document.getElementById('status-note');
+    const transcriptEl = document.getElementById('transcript');
+
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+      ]);
+    }
+
+    async function checkCapability() {
+      if (!self.LanguageModel) {
+        capStatus.textContent = 'not in this browser';
+        capStatus.classList.add('missing');
+        return false;
+      }
+      try {
+        const availability = await withTimeout(LanguageModel.availability(), 5000);
+        const usable = availability !== 'unavailable';
+        capStatus.textContent = availability === 'available' ? 'available' : usable ? 'needs download' : 'unavailable';
+        capStatus.classList.add(availability === 'available' ? 'available' : usable ? 'downloadable' : 'unavailable');
+        return usable;
+      } catch (e) {
+        capStatus.textContent = 'error: ' + e.message;
+        capStatus.classList.add('unavailable');
+        return false;
+      }
+    }
+
+    checkCapability().then((usable) => {
+      if (!usable) {
+        uploadPanel.classList.add('demo-disabled');
+        dropZone.style.pointerEvents = 'none';
+        statusNote.textContent = 'The Prompt API isn\'t available in this browser right now.';
+      }
+    });
+
+    const SYSTEM_PROMPT = 'You will be shown a single still frame extracted from a video, at a ' +
+      'specific point in time. In one short, plain sentence, describe what is visible in this frame. ' +
+      'Do not mention that this is a frame, video, image, or timestamp -- describe the scene directly. ' +
+      'No disclaimers or safety caveats unless something genuinely concerning is visible.';
+
+    const MAX_DIMENSION = 480;
+    let objectUrl = null;
+    let timestamps = [];
+
+    function formatTime(s) {
+      const m = Math.floor(s / 60);
+      const sec = Math.floor(s % 60);
+      return m + ':' + String(sec).padStart(2, '0');
+    }
+
+    function loadVideoFile(file) {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = URL.createObjectURL(file);
+      sourceVideo.src = objectUrl;
+      sourceVideo.onloadedmetadata = () => {
+        timestamps = [];
+        for (let t = 0; t < sourceVideo.duration; t += 1) timestamps.push(t);
+        if (timestamps.length === 0) timestamps.push(0); // clip shorter than 1s: still analyze its one frame
+        statusNote.textContent = 'Ready — will analyze ' + timestamps.length +
+          ' frame' + (timestamps.length === 1 ? '' : 's') + ' (1 per second).';
+        analyzeBtn.disabled = false;
+      };
+      // accept="video/*" on the file input is only a picker hint, not real
+      // validation -- a file Chrome can't decode (most non-MP4/WebM formats)
+      // never fires loadedmetadata, it fires this instead.
+      sourceVideo.onerror = () => {
+        statusNote.textContent = 'Could not load this file — try an MP4 (H.264) or WebM video.';
+        analyzeBtn.disabled = true;
+      };
+      dropZone.style.display = 'none';
+      sourceVideo.style.display = 'block';
+      workspace.style.display = 'block';
+      transcriptEl.innerHTML = '';
+      analyzeBtn.disabled = true;
+    }
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.classList.add('dragover'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+    dropZone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropZone.classList.remove('dragover');
+      if (e.dataTransfer.files[0]) loadVideoFile(e.dataTransfer.files[0]);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) loadVideoFile(fileInput.files[0]);
+    });
+
+    resetBtn.addEventListener('click', () => {
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
+      sourceVideo.src = '';
+      sourceVideo.style.display = 'none';
+      workspace.style.display = 'none';
+      dropZone.style.display = 'block';
+      fileInput.value = '';
+      transcriptEl.innerHTML = '';
+      statusNote.textContent = '';
+    });
+
+    function seekTo(t) {
+      return new Promise((resolve, reject) => {
+        if (Math.abs(sourceVideo.currentTime - t) < 0.05) { resolve(); return; }
+        function cleanup() {
+          sourceVideo.removeEventListener('seeked', onSeeked);
+          sourceVideo.removeEventListener('error', onError);
+        }
+        function onSeeked() { cleanup(); resolve(); }
+        function onError() { cleanup(); reject(new Error('seek failed')); }
+        sourceVideo.addEventListener('seeked', onSeeked, { once: true });
+        sourceVideo.addEventListener('error', onError, { once: true });
+        sourceVideo.currentTime = t;
+      });
+    }
+
+    function captureFrameBlob() {
+      const w = sourceVideo.videoWidth;
+      const h = sourceVideo.videoHeight;
+      const scale = Math.min(1, MAX_DIMENSION / Math.max(w, h));
+      captureCanvas.width = Math.round(w * scale);
+      captureCanvas.height = Math.round(h * scale);
+      const ctx = captureCanvas.getContext('2d');
+      ctx.drawImage(sourceVideo, 0, 0, captureCanvas.width, captureCanvas.height);
+      return new Promise((resolve) => captureCanvas.toBlob(resolve, 'image/jpeg', 0.85));
+    }
+
+    // Stateless per-frame session, same reasoning as webcam-nano: each frame's
+    // description doesn't depend on the last one, and feeding all of them into
+    // one growing conversation would eventually exceed Gemini Nano's ~9K token
+    // context for anything longer than a short clip.
+    async function describeFrame(blob) {
+      const session = await LanguageModel.create({
+        expectedInputs: [{ type: 'image' }],
+        initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
+      });
+      try {
+        return await session.prompt([{
+          role: 'user',
+          content: [
+            { type: 'image', value: blob },
+            { type: 'text', value: 'What do you see in this frame?' },
+          ],
+        }]);
+      } finally {
+        session.destroy();
+      }
+    }
+
+    function addTranscriptRow(t, text, isError) {
+      const row = document.createElement('div');
+      row.className = 'transcript-row';
+      const time = document.createElement('span');
+      time.className = 'transcript-time';
+      time.textContent = formatTime(t);
+      const caption = document.createElement('span');
+      caption.className = 'transcript-caption' + (isError ? ' error' : '');
+      caption.textContent = text;
+      row.appendChild(time);
+      row.appendChild(caption);
+      transcriptEl.appendChild(row);
+    }
+
+    analyzeBtn.addEventListener('click', async () => {
+      analyzeBtn.disabled = true;
+      resetBtn.disabled = true;
+      transcriptEl.innerHTML = '';
+
+      for (let i = 0; i < timestamps.length; i++) {
+        statusNote.textContent = 'Analyzing frame ' + (i + 1) + ' of ' + timestamps.length + '…';
+        try {
+          await withTimeout(seekTo(timestamps[i]), 5000);
+          const blob = await captureFrameBlob();
+          const text = await describeFrame(blob);
+          addTranscriptRow(timestamps[i], text, false);
+        } catch (e) {
+          addTranscriptRow(timestamps[i], 'Error: ' + e.message, true);
+        }
+      }
+
+      statusNote.textContent = 'Done — ' + timestamps.length + ' frame' +
+        (timestamps.length === 1 ? '' : 's') + ' analyzed.';
+      analyzeBtn.disabled = false;
+      resetBtn.disabled = false;
+    });
+  </script>
+</body>
+</html>

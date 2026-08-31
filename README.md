@@ -192,6 +192,20 @@ CPU-only Python can't give it.
   a real image-inference round trip takes) is unconfirmed until tested on real Chrome, same standing
   caveat as every other Nano feature in this repo.
 
+- [Video captioning](https://nlade-core.github.io/pages-lab-ai/video-nano/) — upload a video clip,
+  Gemini Nano describes one frame per second and builds a timestamped transcript. `webcam-nano`'s
+  sibling: same stateless-session-per-frame design, same downscale-to-JPEG-blob capture helper, just a
+  seekable uploaded file (`video.currentTime` + the `seeked` event) instead of a live camera stream as
+  the frame source — no CORS concerns since it's a local `Blob` URL, not a cross-origin fetch. A 90-second
+  clip means 90 separate sequential model calls, not parallel ones, same one-shared-model discipline as
+  every other Nano feature here. A failed frame (seek timeout, model error) gets its own error row and
+  the run continues rather than aborting. Verified end to end with Playwright against a **real** decoded
+  4.5-second test clip (not stubbed video, only `LanguageModel` is stubbed): correctly computes 5
+  timestamps for a 4.5s clip at 1fps, exactly one `create()`/`destroy()` pair per frame in order
+  (0:00-0:04), transcript rows match, and the reset flow clears state correctly. Same standing caveat as
+  every Nano page: real output quality/per-frame latency on an actual video is unconfirmed until tested
+  on real Chrome.
+
 ## Considered, not built
 
 - **Stable Diffusion** via ONNX Runtime Web — checked real component sizes (`aislamov`'s browser-ready
