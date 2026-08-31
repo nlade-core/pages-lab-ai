@@ -204,7 +204,14 @@ CPU-only Python can't give it.
   timestamps for a 4.5s clip at 1fps, exactly one `create()`/`destroy()` pair per frame in order
   (0:00-0:04), transcript rows match, and the reset flow clears state correctly. Same standing caveat as
   every Nano page: real output quality/per-frame latency on an actual video is unconfirmed until tested
-  on real Chrome.
+  on real Chrome. Also handles files Chrome can't decode (reliably just MP4/H.264 and WebM — `.mov`/`.mkv`/
+  `.avi` are hit-or-miss to unsupported) with a clear error instead of hanging on a `loadedmetadata` event
+  that never fires. **Both the system prompt and the per-frame question are user-editable**, pre-filled
+  with the working defaults — since every frame is already a fresh stateless session, there's no state to
+  migrate when they change. An emptied field falls back to the real default rather than sending a blank
+  prompt. Verified: the fields load with the true defaults, a custom system prompt and question both
+  actually reach the (stubbed) model rather than the hardcoded strings, and clearing either field falls
+  back correctly.
 
 ## Considered, not built
 

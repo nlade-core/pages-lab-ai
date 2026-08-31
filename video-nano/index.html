@@ -112,6 +112,23 @@
 
   .note { color: var(--muted); font-size: 0.85rem; margin-bottom: 0.75rem; min-height: 1.2em; }
 
+  label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.35rem; }
+  textarea, input[type="text"] {
+    width: 100%;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.6rem 0.75rem;
+    font-size: 0.9rem;
+    line-height: 1.4;
+    resize: vertical;
+  }
+  textarea { min-height: 80px; margin-bottom: 1rem; }
+  input[type="text"] { margin-bottom: 0; }
+  .field { margin-bottom: 1rem; }
+  .field:last-child { margin-bottom: 0; }
+
   #transcript { margin-top: 1rem; }
   .transcript-row { display: flex; gap: 0.75rem; padding: 0.5rem 0; border-bottom: 1px solid var(--border); font-size: 0.92rem; }
   .transcript-row:last-child { border-bottom: none; }
@@ -137,6 +154,19 @@
       <div class="cap-row">
         <span>Prompt API (LanguageModel)</span>
         <span class="cap-status" id="cap-status">checking…</span>
+      </div>
+    </div>
+
+    <div class="panel" id="prompt-panel">
+      <p class="subnote" style="margin-bottom:1rem;">Customize how each frame is analyzed — loaded with the
+        working defaults below, edit either before clicking Analyze.</p>
+      <div class="field">
+        <label for="system-prompt-input">System prompt</label>
+        <textarea id="system-prompt-input"></textarea>
+      </div>
+      <div class="field">
+        <label for="question-input">Question asked per frame</label>
+        <input type="text" id="question-input">
       </div>
     </div>
 
@@ -171,6 +201,8 @@
     const resetBtn = document.getElementById('reset-btn');
     const statusNote = document.getElementById('status-note');
     const transcriptEl = document.getElementById('transcript');
+    const systemPromptInput = document.getElementById('system-prompt-input');
+    const questionInput = document.getElementById('question-input');
 
     function withTimeout(promise, ms) {
       return Promise.race([
@@ -206,10 +238,14 @@
       }
     });
 
-    const SYSTEM_PROMPT = 'You will be shown a single still frame extracted from a video, at a ' +
+    const DEFAULT_SYSTEM_PROMPT = 'You will be shown a single still frame extracted from a video, at a ' +
       'specific point in time. In one short, plain sentence, describe what is visible in this frame. ' +
       'Do not mention that this is a frame, video, image, or timestamp -- describe the scene directly. ' +
       'No disclaimers or safety caveats unless something genuinely concerning is visible.';
+    const DEFAULT_QUESTION = 'What do you see in this frame?';
+
+    systemPromptInput.value = DEFAULT_SYSTEM_PROMPT;
+    questionInput.value = DEFAULT_QUESTION;
 
     const MAX_DIMENSION = 480;
     let objectUrl = null;
@@ -302,16 +338,18 @@
     // one growing conversation would eventually exceed Gemini Nano's ~9K token
     // context for anything longer than a short clip.
     async function describeFrame(blob) {
+      const systemPrompt = systemPromptInput.value.trim() || DEFAULT_SYSTEM_PROMPT;
+      const question = questionInput.value.trim() || DEFAULT_QUESTION;
       const session = await LanguageModel.create({
         expectedInputs: [{ type: 'image' }],
-        initialPrompts: [{ role: 'system', content: SYSTEM_PROMPT }],
+        initialPrompts: [{ role: 'system', content: systemPrompt }],
       });
       try {
         return await session.prompt([{
           role: 'user',
           content: [
             { type: 'image', value: blob },
-            { type: 'text', value: 'What do you see in this frame?' },
+            { type: 'text', value: question },
           ],
         }]);
       } finally {
