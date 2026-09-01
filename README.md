@@ -255,8 +255,8 @@ CPU-only Python can't give it.
   parsed into a real parent/child tree, not a flat list with a level number bolted on — every node
   carries its own char count and a rolled-up total across its whole subtree, confirmed against the real
   live article to reach genuine 3-deep nesting (`Design > Floors > 1st floor`). The starter chat message
-  shows a short intro with the summary, the (nested, not flattened) section list, and a curated set of
-  Wikidata facts (below) each behind their own collapsed dropdown.
+  shows a short intro with the summary, the (nested, not flattened) section list, and a set of Wikidata
+  facts (below) each behind their own collapsed dropdown.
 
   The interesting part is the retrieval itself, hand-rolled since Gemini Nano has no native tool-calling.
   It's staged, escalating only as far as a question actually needs: **(0)** the question goes in with
@@ -280,25 +280,40 @@ CPU-only Python can't give it.
   parallelize with itself (see chrome-ai above), so a fully escalated question costs roughly 3-5x a
   plain one.
 
-  Companion structured facts now come from Wikidata too — a small, hand-curated property allowlist
-  (height, architect, materials, floors, location, country, main contractor) resolved via the article's
-  linked Wikidata item and folded directly into the system prompt alongside the summary, since a handful
-  of facts is only a couple hundred tokens — negligible against Nano's context window, so there's no size
-  problem to justify a `NEED_MORE_INFO`-style escalation the way section text gets one. Deliberately
-  excludes inception/construction dates: the real item carries two conflicting dates with no preferred
-  rank and only an "applies to part" qualifier distinguishing them (pointing at two different sub-items,
-  not a clean started/completed split) — surfacing both unlabeled would be actively misleading, not just
-  noisy. Height had the same shape of conflict (three different values) but Wikidata marks one `preferred`
-  specifically to resolve exactly this, confirmed live before relying on it. Two real bugs caught testing
-  against the actual live API, not assumed away: a Quantity-typed value (floors above ground) rendered as
-  literal `[object Object]` under a naive `String()` fallback before being fixed to handle the real shape;
-  and a dimensionless quantity's unit is the bare string `"1"`, not a real entity — treating it as a Q-id
-  to resolve broke the *entire* batched labels call (Wikidata returns one top-level error for the whole
-  request if even one requested id is invalid), silently losing every other fact, not just the unitless
-  one. This is intentionally narrow, hand-curated for this one demo article, not a generic "any Wikipedia
-  topic" solution — deciding which of an arbitrary article's ~180 properties are actually interesting
-  (versus GeoNames/Structurae-style cross-reference IDs, the majority of them) is a harder problem,
-  deliberately deferred until page-choice is actually being built.
+  Companion structured facts now come from Wikidata too — and, since being rebuilt, this works for *any*
+  Wikipedia article, not just this one demo. An earlier version hand-curated a 7-property allowlist
+  (height, architect, materials...) tuned specifically for a landmark; confirmed live that it was
+  completely useless off-topic — every one of the 7 was missing on Marie Curie's Wikidata item. The
+  generalized version keeps whatever properties an item actually has, excluding only what's caught by two
+  fully generic rules: (1) drop anything typed `external-id`, `url`, or `commonsMedia` (measured live: this
+  alone cuts a rich item's ~180 properties to ~40, since the majority are cross-reference IDs to other
+  databases); (2) drop a ~130-property blocklist Wikidata *itself* formally classifies as being about the
+  Wikidata/Wikimedia entry rather than the real-world subject — queried live via SPARQL against three real
+  Wikidata classes, not hand-guessed, catching things rule (1) can't (like `maintained by WikiProject`).
+  Folded directly into the system prompt alongside the summary — a handful of facts is only a couple
+  hundred tokens, negligible against Nano's context window, so there's no size problem to justify a
+  `NEED_MORE_INFO`-style escalation the way section text gets one. Label resolution (an item-type value's
+  real form is a pointer to *another* Wikidata item, e.g. architect → `Q778243`, not "Stephen Sauvestre")
+  tries 9 languages in order — `en, mul, de, fr, es, ru, zh, ar, ja` — reasoned out for maximal
+  non-overlapping coverage (each pick covers genuinely different ground — script, geography, community —
+  than the ones before it, rather than just being another big language), not picked by raw size alone;
+  `mul` goes first regardless of stats since it's Wikidata's own tag for names that were never going to
+  get a real per-language translation in the first place. Measured directly: requesting all 9 costs
+  nothing meaningful (~27KB for a real 50-id batch, on a fetch that only happens once per page load).
+
+  Several real bugs surfaced by testing genuinely different articles (Eiffel Tower, Monster truck,
+  Sandwich), not assumed away: two more raw-value shapes (monolingualtext, globe-coordinate) hit the exact
+  same `[object Object]` bug a Quantity value did earlier; the formally-sourced blocklist turned out to be
+  incomplete (missing "native label" and "different from," both re-added once the gap was confirmed, not
+  silently dropped); and one property's value was an EntitySchema reference (`E204`), not a real item —
+  treating it as a Q-id to resolve broke the *entire* batched labels call, the same failure class as an
+  earlier dimensionless-unit-string bug, just via a different kind of non-item id slipping through a now
+  more generic code path. Height still deliberately prefers Wikidata's `rank: preferred` statement over
+  two other conflicting values, and inception/construction dates are still excluded — the real item
+  carries two conflicting dates with no preferred rank and only an ambiguous qualifier distinguishing them,
+  so surfacing both unlabeled would be actively misleading, not just noisy. Deciding which of an arbitrary
+  article's remaining properties are *interesting* (versus merely not-excluded) is left for later — this
+  generalizes correctly, but doesn't yet rank or curate beyond the two exclusion rules.
 
   Chosen over two other researched "info exploration" directions, both still parked: Project Gutenberg
   (full public-domain books via Gutendex, parked as too big a stress-test for a first pass) and Openverse
