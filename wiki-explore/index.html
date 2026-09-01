@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — Wikipedia explorer (copilot)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; height: 100%; }
+  body { height: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  #app {
+    display: grid;
+    grid-template-columns: 1fr 380px;
+    height: 100vh;
+    height: 100dvh;
+  }
+
+  #article-pane { overflow-y: auto; padding: 2rem clamp(1rem, 4vw, 3rem); }
+  #article-header { margin-bottom: 1.25rem; padding-bottom: 1rem; border-bottom: 1px solid var(--border); }
+  #article-header h1 { font-size: 1.5rem; margin-bottom: 0.35rem; }
+  .top-subnote { color: var(--muted); font-size: 0.82rem; margin-bottom: 1.25rem; }
+  .attribution { color: var(--muted); font-size: 0.78rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+  .attribution a { color: inherit; }
+
+  #article-body h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
+  #article-body h3 { font-size: 1.05rem; margin: 1.2rem 0 0.4rem; }
+  #article-body h4 { font-size: 0.95rem; margin: 1rem 0 0.35rem; color: var(--muted); }
+  #article-body p { margin-bottom: 0.85rem; font-size: 0.95rem; }
+  #article-intro { font-size: 1rem; margin-bottom: 0.5rem; }
+
+  #chat-pane {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    border-left: 1px solid var(--border);
+    background: var(--panel);
+    min-width: 0;
+  }
+  #chat-header { flex-shrink: 0; padding: 1rem 1rem 0.75rem; border-bottom: 1px solid var(--border); }
+  #chat-header h2 { font-size: 0.95rem; margin-bottom: 0.3rem; }
+  #chat-header .status-line { font-size: 0.78rem; color: var(--muted); }
+  .status-pill { font-weight: 600; }
+  .status-pill.available { color: var(--ok); }
+  .status-pill.downloadable, .status-pill.unavailable { color: var(--bad); }
+
+  #chat-log { flex: 1; min-height: 0; overflow-y: auto; padding: 1rem; display: flex; flex-direction: column; gap: 0.75rem; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 92%; font-size: 0.88rem; }
+  .msg.user { align-self: flex-end; background: color-mix(in srgb, var(--accent) 15%, var(--panel)); }
+  .msg.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
+  .msg .role { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .msg.section-note { align-self: center; background: transparent; border: none; color: var(--muted); font-size: 0.78rem; font-style: italic; padding: 0.2rem; }
+
+  #chat-composer { flex-shrink: 0; padding: 0.85rem; border-top: 1px solid var(--border); }
+  #chat-composer .row { display: flex; gap: 0.5rem; }
+  #chat-input { flex: 1; border: 1px solid var(--border); border-radius: 8px; padding: 0.5rem 0.7rem; background: var(--bg); color: var(--fg); font-size: 0.88rem; }
+  button {
+    background: var(--accent); color: var(--accent-fg); border: none; border-radius: 6px;
+    padding: 0.5rem 0.9rem; cursor: pointer; font-size: 0.88rem;
+  }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  #chat-note { color: var(--muted); font-size: 0.78rem; margin-top: 0.5rem; min-height: 1.1em; }
+
+  @media (max-width: 800px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: 1fr 45vh; height: 100vh; height: 100dvh; }
+    #chat-pane { border-left: none; border-top: 1px solid var(--border); }
+  }
+</style>
+</head>
+<body>
+  <div id="app">
+    <div id="article-pane">
+      <div id="article-header">
+        <h1 id="article-title">Loading…</h1>
+        <p class="top-subnote">Wikipedia explorer — <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">pages-lab-ai</a>, 15th page. Rendered from Wikipedia's own plain-text extract; ask the sidebar copilot anything about it.</p>
+      </div>
+      <div id="article-intro"></div>
+      <div id="article-body"></div>
+      <p class="attribution" id="attribution" style="display:none;"></p>
+    </div>
+
+    <div id="chat-pane">
+      <div id="chat-header">
+        <h2>Ask about this article</h2>
+        <div class="status-line">Prompt API: <span class="status-pill" id="status-pill">checking…</span></div>
+      </div>
+      <div id="chat-log"></div>
+      <div id="chat-composer">
+        <div class="row">
+          <input type="text" id="chat-input" placeholder="Ask something…" disabled>
+          <button id="chat-send-btn" disabled>Ask</button>
+        </div>
+        <div id="chat-note"></div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    const ARTICLE_TITLE = 'Eiffel Tower';
+
+    const articleTitleEl = document.getElementById('article-title');
+    const articleIntroEl = document.getElementById('article-intro');
+    const articleBodyEl = document.getElementById('article-body');
+    const attributionEl = document.getElementById('attribution');
+    const statusPill = document.getElementById('status-pill');
+    const chatLog = document.getElementById('chat-log');
+    const chatInput = document.getElementById('chat-input');
+    const chatSendBtn = document.getElementById('chat-send-btn');
+    const chatNote = document.getElementById('chat-note');
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    // --- Fetch + parse the article once. Plain-text extract, not HTML --
+    // deliberately: this is the same data source the retrieval loop below
+    // needs anyway (real section text on demand), so the reading pane and
+    // the copilot share one source of truth instead of fetching the
+    // article twice in two different formats.
+    async function fetchArticle(title) {
+      const res = await fetch('https://en.wikipedia.org/w/api.php?action=query&prop=extracts&explaintext=1&titles=' + encodeURIComponent(title) + '&format=json&origin=*');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const page = Object.values(data.query.pages)[0];
+      const extract = page.extract || '';
+      const lines = extract.split('\n');
+      let intro = '';
+      const sections = [];
+      let current = null;
+      for (const line of lines) {
+        const m = line.match(/^(={2,6})\s*(.+?)\s*\1$/);
+        if (m) {
+          if (current) sections.push(current);
+          current = { level: m[1].length, title: m[2].trim(), text: '' };
+        } else if (current) {
+          current.text += (current.text ? '\n' : '') + line;
+        } else {
+          intro += (intro ? '\n' : '') + line;
+        }
+      }
+      if (current) sections.push(current);
+      // Citations/links-only tail sections aren't useful reading or
+      // retrieval content -- stop there, same convention as chrome-chat's
+      // /wiki full.
+      const stop = ['See also', 'References', 'External links', 'Notes', 'Further reading', 'Bibliography'];
+      const stopIdx = sections.findIndex((s) => stop.includes(s.title));
+      const kept = stopIdx === -1 ? sections : sections.slice(0, stopIdx);
+      return { title: page.title, intro: intro.trim(), sections: kept };
+    }
+
+    function renderArticle(article) {
+      articleTitleEl.textContent = article.title;
+      articleIntroEl.innerHTML = article.intro.split('\n\n').map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
+      articleBodyEl.innerHTML = article.sections.map((s) => {
+        const tag = 'h' + Math.min(s.level, 4);
+        const body = s.text.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
+        return '<' + tag + '>' + escapeHtml(s.title) + '</' + tag + '>' + body;
+      }).join('');
+      attributionEl.innerHTML = 'Content from <a href="https://en.wikipedia.org/wiki/' + encodeURIComponent(article.title.replace(/ /g, '_')) + '" target="_blank" rel="noopener">Wikipedia: ' + escapeHtml(article.title) + '</a>, available under the <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a> license.';
+      attributionEl.style.display = 'block';
+    }
+
+    // --- The retrieval loop. Gemini Nano has no native tool-calling, so
+    // this is hand-rolled: the model is told up front what sections
+    // EXIST (titles only, not their content) and instructed to ask for
+    // one by name if the summary isn't enough, via a plain-text marker
+    // rather than a real function call. ---
+    function buildSystemPrompt(article) {
+      const titles = article.sections.map((s) => '- ' + s.title).join('\n');
+      return 'You are a helpful assistant answering questions about the Wikipedia article "' + article.title + '".\n\n'
+        + 'You have been given a summary of the article and a list of its section titles. You do NOT have the full text of any section yet.\n\n'
+        + 'Summary:\n' + article.intro + '\n\n'
+        + 'Section titles:\n' + titles + '\n\n'
+        + 'If the summary is enough to answer the user\'s question, answer normally and directly.\n\n'
+        + 'If you need a specific section\'s real text to answer well, respond with EXACTLY this and nothing else:\n'
+        + 'NEED_SECTION: <exact section title from the list above>\n\n'
+        + 'Only use NEED_SECTION when you genuinely need it -- do not guess at a section\'s content, and do not use NEED_SECTION for information already in the summary.';
+    }
+
+    function findSection(article, requestedTitle) {
+      const norm = requestedTitle.trim().toLowerCase();
+      return article.sections.find((s) => s.title.toLowerCase() === norm)
+        || article.sections.find((s) => s.title.toLowerCase().includes(norm) || norm.includes(s.title.toLowerCase()));
+    }
+
+    function addMessage(role, text) {
+      const row = document.createElement('div');
+      row.className = 'msg ' + role;
+      row.innerHTML = '<span class="role">' + role + '</span>' + escapeHtml(text);
+      chatLog.appendChild(row);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    function addSectionNote(text) {
+      const row = document.createElement('div');
+      row.className = 'msg section-note';
+      row.textContent = text;
+      chatLog.appendChild(row);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+
+    let session = null;
+    let article = null;
+
+    // v1 deliberately uses non-streaming prompt() throughout, not
+    // promptStreaming(). Streaming would mean rendering chunks live as
+    // they arrive -- but a NEED_SECTION marker looks identical to the
+    // start of a real answer until enough of it has streamed in, risking
+    // the raw "NEED_SEC..." control text flashing on screen before the
+    // app catches it. Waiting for the complete response first makes the
+    // marker check unambiguous. Real streaming is a follow-up once this
+    // retrieval logic itself is proven out, not something to solve at
+    // the same time.
+    async function askQuestion(question) {
+      chatInput.value = '';
+      chatSendBtn.disabled = true;
+      chatInput.disabled = true;
+      addMessage('user', question);
+      chatNote.textContent = 'Thinking…';
+      try {
+        let response = await session.prompt(question);
+        const match = response.match(/^NEED_SECTION:\s*(.+)$/i);
+        if (match) {
+          const requestedTitle = match[1].trim();
+          const section = findSection(article, requestedTitle);
+          if (section) {
+            addSectionNote('Looking into the "' + section.title + '" section…');
+            chatNote.textContent = 'Looking into the "' + section.title + '" section…';
+            response = await session.prompt('Here is the "' + section.title + '" section of the article:\n\n' + section.text + '\n\nNow answer the original question: ' + question);
+          } else {
+            addSectionNote('Model asked for "' + requestedTitle + '", which isn\'t a real section -- re-asking without it.');
+            chatNote.textContent = 'Re-checking…';
+            response = await session.prompt('There is no section titled "' + requestedTitle + '" in this article. Please answer as best you can with the summary information you already have, without using NEED_SECTION again.');
+          }
+        }
+        addMessage('assistant', response);
+        chatNote.textContent = '';
+      } catch (e) {
+        chatNote.textContent = 'Error: ' + e.message;
+      }
+      chatSendBtn.disabled = false;
+      chatInput.disabled = false;
+      chatInput.focus();
+    }
+
+    async function init() {
+      try {
+        article = await fetchArticle(ARTICLE_TITLE);
+        renderArticle(article);
+      } catch (e) {
+        articleTitleEl.textContent = 'Failed to load article';
+        chatNote.textContent = 'Error loading article: ' + e.message;
+        return;
+      }
+
+      if (!self.LanguageModel) {
+        statusPill.className = 'status-pill unavailable';
+        statusPill.textContent = 'not in this browser';
+        chatNote.textContent = 'The Prompt API isn\'t available in this browser.';
+        return;
+      }
+      try {
+        const availability = await LanguageModel.availability();
+        if (availability === 'unavailable') {
+          statusPill.className = 'status-pill unavailable';
+          statusPill.textContent = 'unavailable';
+          chatNote.textContent = 'The Prompt API is unavailable on this device.';
+          return;
+        }
+        statusPill.className = 'status-pill ' + (availability === 'available' ? 'available' : 'downloadable');
+        statusPill.textContent = availability === 'downloadable' ? 'needs download' : availability;
+
+        chatNote.textContent = 'Preparing the model…';
+        session = await LanguageModel.create({
+          initialPrompts: [{ role: 'system', content: buildSystemPrompt(article) }],
+          monitor(m) {
+            m.addEventListener('downloadprogress', (e) => {
+              chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
+            });
+          },
+        });
+        chatNote.textContent = '';
+        chatInput.disabled = false;
+        chatSendBtn.disabled = false;
+        chatInput.focus();
+      } catch (e) {
+        chatNote.textContent = 'Could not start the model: ' + e.message;
+      }
+    }
+
+    chatSendBtn.addEventListener('click', () => {
+      const q = chatInput.value.trim();
+      if (q && session) askQuestion(q);
+    });
+    chatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const q = chatInput.value.trim();
+        if (q && session) askQuestion(q);
+      }
+    });
+
+    init();
+  </script>
+</body>
+</html>
