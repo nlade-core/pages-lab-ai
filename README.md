@@ -361,3 +361,24 @@ CPU-only Python can't give it.
 - **MobileNetV4-Small swap-in** for the current classifier — real but modest gain (73.8% vs 71.8%
   top-1 on ImageNet, at *fewer* MACs than V2), and its ONNX export hasn't been verified the way V2's
   was found broken. Low priority: same capability, not a new one.
+- **wiki-explore: full article references/citations** — skip. Wrong data source (`explaintext=1`, which
+  the whole tree-parsing pipeline is built around, strips citations entirely; getting them means a
+  different HTML/wikitext parsing pipeline, not an addition to this one) and wrong fit for what this page
+  does (references are about *sourcing*, this page is built for *comprehension and fact lookup* — a
+  bibliography entry helps neither a reader's understanding nor the model's ability to answer a question).
+- **wiki-explore: full in-context photos with captions, throughout every section** — skip, on cost, not
+  value. Genuinely would improve the reading experience, but properly positioning captioned images inside
+  their correct section needs the full/mobile HTML endpoint, a structurally different data source than
+  the plain-text extract this page's tree parser depends on — a real re-architecture for a nice-to-have,
+  not a core need.
+- **wiki-explore: a single lead image** — the one image-related item actually worth doing. Different case
+  from full in-context photos: `chrome-chat`'s `/wiki image` already solved exactly this (media-list
+  endpoint, filtered to Commons-hosted for licensing safety, confirmed live against a real non-Commons
+  case). One hero image at the top of the article pane, reusing already-proven code, gets most of the
+  "this feels like a real article" benefit for a fraction of the cost of full illustration.
+- **wiki-explore: infobox data as its own feature** — moot, already solved differently: the Known Facts
+  feature (Wikidata-sourced) already surfaces the infobox's actual content (height, architect, materials,
+  coordinates); no separate infobox-scraping effort needed.
+- **wiki-explore: an embedded map from the coordinates already in Known Facts** — a genuinely interesting
+  idea, but a new capability (embedding a map widget), not something to pull from the Wikipedia API itself
+  — worth treating as its own separate feature decision later, not bundled with this list.
