@@ -271,8 +271,8 @@
               <button class="tiny secondary delete-btn">Delete</button>
             </div>
           </div>
-          <textarea class="cell-code" spellcheck="false">${cell.code.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</textarea>
-          <div class="cell-output ${cell.status || ''}" style="${cell.output ? 'display:block;' : ''}">${cell.output}</div>
+          <textarea class="cell-code" spellcheck="false">${escapeHtml(cell.code)}</textarea>
+          <div class="cell-output ${cell.status || ''}" style="${cell.output ? 'display:block;' : ''}">${escapeHtml(cell.output)}</div>
         </div>
       `).join('');
 

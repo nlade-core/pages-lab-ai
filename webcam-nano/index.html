@@ -110,6 +110,16 @@
 
   .note { color: var(--muted); font-size: 0.85rem; }
   .demo-disabled { opacity: 0.55; }
+
+  #camera-select {
+    display: none;
+    margin-left: 0.5rem;
+    background: var(--bg);
+    color: var(--fg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.5rem 0.6rem;
+  }
 </style>
 </head>
 <body>
@@ -134,6 +144,7 @@
     <div class="panel" id="webcam-panel">
       <button id="start-btn">Start webcam</button>
       <button class="secondary" id="stop-btn" style="display:none;">Stop</button>
+      <select id="camera-select" title="Switch camera"></select>
 
       <video id="webcam-video" autoplay playsinline muted></video>
       <canvas id="capture-canvas" style="display:none;"></canvas>
@@ -147,6 +158,7 @@
     const capStatus = document.getElementById('cap-status');
     const startBtn = document.getElementById('start-btn');
     const stopBtn = document.getElementById('stop-btn');
+    const cameraSelect = document.getElementById('camera-select');
     const webcamVideo = document.getElementById('webcam-video');
     const captureCanvas = document.getElementById('capture-canvas');
     const captionBox = document.getElementById('caption-box');
@@ -236,6 +248,57 @@
       }
     }
 
+    // Device labels are only populated once permission's been granted at
+    // least once for this origin (a privacy/fingerprinting protection) --
+    // so this is only useful, and only called, after getUserMedia succeeds.
+    async function refreshCameraList() {
+      const cams = (await navigator.mediaDevices.enumerateDevices())
+        .filter((d) => d.kind === 'videoinput');
+      cameraSelect.innerHTML = '';
+      cams.forEach((d, i) => {
+        const opt = document.createElement('option');
+        opt.value = d.deviceId;
+        opt.textContent = d.label || ('Camera ' + (i + 1));
+        cameraSelect.appendChild(opt);
+      });
+      const activeId = webcamStream && webcamStream.getVideoTracks()[0].getSettings().deviceId;
+      if (activeId) cameraSelect.value = activeId;
+      // No point showing a picker when there's nothing to pick between.
+      cameraSelect.style.display = cams.length > 1 ? 'inline-block' : 'none';
+    }
+
+    async function attachStream(stream) {
+      if (webcamStream) webcamStream.getTracks().forEach((t) => t.stop());
+      webcamStream = stream;
+      webcamVideo.srcObject = stream;
+      await new Promise((resolve) => { webcamVideo.onloadedmetadata = resolve; });
+    }
+
+    // Fires when a camera connects/disconnects at the OS level (e.g. an
+    // iPhone joining as a Continuity Camera mid-session) -- without this,
+    // the picker only ever reflected whatever was available at Start, so a
+    // camera connected afterward silently never showed up. Only refreshing
+    // while a stream's already active mirrors the same "picker only means
+    // anything once running" scoping the rest of this feature already uses.
+    navigator.mediaDevices.addEventListener('devicechange', () => {
+      if (webcamActive) refreshCameraList();
+    });
+
+    cameraSelect.addEventListener('change', async () => {
+      const deviceId = cameraSelect.value;
+      if (!deviceId) return;
+      let newStream;
+      try {
+        newStream = await navigator.mediaDevices.getUserMedia({
+          video: { deviceId: { exact: deviceId }, width: { ideal: 480 } },
+        });
+      } catch (e) {
+        statusNote.textContent = 'Could not switch camera: ' + e.message;
+        return;
+      }
+      await attachStream(newStream); // runLoop reads webcamVideo, not webcamStream directly -- swapping mid-loop is transparent to it
+    });
+
     async function runLoop() {
       while (webcamActive) {
         try {
@@ -254,14 +317,15 @@
     }
 
     startBtn.addEventListener('click', async () => {
+      let stream;
       try {
-        webcamStream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 480 } } });
+        stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 480 } } });
       } catch (e) {
         statusNote.textContent = 'Could not access webcam: ' + e.message;
         return;
       }
-      webcamVideo.srcObject = webcamStream;
-      await new Promise((resolve) => { webcamVideo.onloadedmetadata = resolve; });
+      await attachStream(stream);
+      await refreshCameraList(); // labels only unlock after the permission grant above
 
       startBtn.style.display = 'none';
       stopBtn.style.display = 'inline-block';
@@ -283,6 +347,8 @@
       statusNote.textContent = '';
       startBtn.style.display = 'inline-block';
       stopBtn.style.display = 'none';
+      cameraSelect.style.display = 'none';
+      cameraSelect.innerHTML = '';
     });
   </script>
 </body>

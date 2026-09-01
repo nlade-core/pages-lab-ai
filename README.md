@@ -78,6 +78,26 @@ CPU-only Python can't give it.
   tested on the user's real Chrome and Gemini Nano correctly processed both the attached image and
   audio alongside the text — the first fully-confirmed real inference result this page has gotten,
   not just Chromium's stub.
+  **Update:** added live Translator and Language Detector demos (the other two stable APIs), a
+  side-by-side timing comparison across all four, and two concurrency tests (same-API and cross-API)
+  to check whether calls actually run in parallel or queue behind each other. Caught and fixed two
+  real methodological bugs while building the concurrency test specifically: raw start/end interval
+  overlap can't detect serialization at all (`Promise.all` dispatches every call at the same instant
+  regardless of what happens internally), and comparing only an aggregate total against max/sum of
+  solo baselines masks per-API differences — a per-API baseline comparison is the only one that
+  actually distinguishes true independence from partial contention. A third bug — `Promise.all(arr.
+  map(...))` calls each function in a fixed array order, so whichever API is listed first always wins
+  a shared-queue race and looks falsely independent — was fixed by shuffling the call order each run
+  and tracking whether the "independent" one stays the same or rotates across repeated runs. **Real
+  findings, confirmed on real Chrome across multiple runs, not assumed:** Prompt API and Summarizer
+  share one exclusive execution resource (very likely the same underlying Gemini Nano model) — only
+  one can run at a time, confirmed three separate times by matching arithmetic (the delayed API's
+  concurrent finish time minus the winner's lands almost exactly on the delayed API's own solo
+  baseline). Translator and Language Detector are genuinely separate, lightweight, non-generative
+  models, unaffected by anything else running alongside them, in every test. Practical implication:
+  routing requests to a "smaller model to save time" only pays off for Translator/Language Detector,
+  and even then it's really about not blocking an in-flight Prompt API/Summarizer call rather than raw
+  speed, since Prompt API can already perform translation/language-detection itself via prompting.
 - [Code chat](https://nlade-core.github.io/pages-lab-ai/code-chat/) — a chatbot for *this page's own
   source*: fetches its own deployed HTML/CSS/JS once via a plain same-origin `fetch(location.href)`,
   seeds it whole into Gemini Nano's `initialPrompts` (a system-prompt mechanism not used anywhere else
@@ -190,7 +210,23 @@ CPU-only Python can't give it.
   the capture loop provably stops for good after Stop is clicked rather than continuing in the
   background. Real Gemini Nano output quality (does it actually narrate the scene usefully, and how long
   a real image-inference round trip takes) is unconfirmed until tested on real Chrome, same standing
-  caveat as every other Nano feature in this repo.
+  caveat as every other Nano feature in this repo. **Camera picker, added later**: `getUserMedia` doesn't
+  care what physical device backs a camera, so anything the OS registers as one — a second built-in
+  camera, an iPhone via macOS Continuity Camera, a GoPro in USB webcam mode — shows up here with zero
+  code changes beyond letting you choose it. The dropdown only appears once permission's granted (device
+  *labels* are blocked pre-permission, a browser privacy protection) and only when there's more than one
+  camera to pick between; switching mid-analysis stops the old stream and starts the new one without
+  interrupting the running capture loop, which reads the `<video>` element rather than the stream object
+  directly. Verified with two fake devices: labels render correctly, the active device is pre-selected,
+  switching requests the exact `deviceId` chosen and the analysis loop keeps producing frames afterward
+  uninterrupted, and the picker stays hidden entirely when only one camera is available. **Live device
+  detection, added right after**: the picker only ever reflected what was available at the moment Start
+  was clicked, so a camera connecting mid-session (an iPhone joining as a Continuity Camera after the
+  page was already running) silently never appeared without a restart. Fixed by listening for the
+  browser's own `devicechange` event and refreshing the list live, gated on a session actually being
+  active so it doesn't do anything while stopped. Verified: an iPhone-labeled device injected mid-session
+  appears in the picker with no restart required, both cameras remain listed (not just the new one), and
+  a `devicechange` firing while stopped correctly does nothing.
 
 - [Video captioning](https://nlade-core.github.io/pages-lab-ai/video-nano/) — upload a video clip,
   Gemini Nano describes one frame per second and builds a timestamped transcript. `webcam-nano`'s
@@ -212,6 +248,34 @@ CPU-only Python can't give it.
   prompt. Verified: the fields load with the true defaults, a custom system prompt and question both
   actually reach the (stubbed) model rather than the hardcoded strings, and clearing either field falls
   back correctly.
+- [Wikipedia explorer](https://nlade-core.github.io/pages-lab-ai/wiki-explore/) — a two-pane reading
+  experience: the actual Wikipedia article (rendered from its own plain-text extract, not fetched a
+  second time in a different format) on the left, a Gemini Nano copilot sidebar on the right. The
+  interesting part: Gemini Nano has no native tool-calling, so retrieval is hand-rolled. The model is
+  primed at page load with just the article's summary and its section *titles* (confirmed negligible —
+  a few hundred tokens for a real article), not the full text of any section. If a question needs more
+  than the summary, the model is instructed to reply with exactly `NEED_SECTION: <title>`; the app
+  catches that, looks up the real section text (already fetched, no new network call), injects it, and
+  asks a second time — only that final answer is ever shown, confirmed the marker text itself never
+  reaches the visible chat. A visible "Looking into the {title} section…" note explains the extra
+  wait, which is real and additive: Prompt API can't parallelize with itself (see chrome-ai above), so
+  needing a section roughly doubles whatever a normal reply already costs. Deliberately non-streaming
+  (`prompt()`, not `promptStreaming()`) for v1 — a `NEED_SECTION` marker is indistinguishable from the
+  start of a real answer until enough of it has arrived, and rendering it live risks the raw control
+  text flashing on screen before the app catches it; real streaming is a follow-up once the retrieval
+  logic itself is proven, not solved at the same time. Chosen over three other researched "info
+  exploration" directions: Wikidata (genuinely interesting relationship exploration — confirmed via
+  SPARQL that the Eiffel Tower's architect, Stephen Sauvestre, also designed a chocolate factory
+  nicknamed "the Cathedral building," a real discovery no article text would surface — parked for
+  later), Project Gutenberg (full public-domain books via Gutendex, parked as too big a stress-test for
+  a first pass), and Openverse (openly-licensed media search, deferred since images/media are
+  explicitly a later priority than text). Also visibly discloses the CC BY-SA 4.0 attribution this
+  fuller display of an article needs, per Wikipedia's own reuse guidance. Verified with Playwright:
+  real headings/intro render with citation-only tail sections excluded, the system prompt confirmed to
+  contain titles but NOT full section content, the two-call retrieval sequence confirmed via the
+  actual `prompt()` arguments, a hallucinated section title handled gracefully, and — a real bug
+  caught after shipping — the chat log itself couldn't scroll (CSS Grid's implicit row was auto-sizing
+  to content instead of the container's height; fixed with `grid-template-rows: minmax(0, 1fr)`).
 
 ## Considered, not built
 

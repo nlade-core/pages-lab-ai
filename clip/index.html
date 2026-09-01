@@ -201,6 +201,10 @@ food</textarea>
     // caught directly while building this, not assumed from documentation.
     const CLIP_MAX_LENGTH = 77;
 
+    function escapeHtml(s) {
+      return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
     const bootStatus = document.getElementById('boot-status');
     const loadBtn = document.getElementById('load-btn');
     const workspace = document.getElementById('workspace');
@@ -350,7 +354,7 @@ food</textarea>
         const pct = (s.score * 100).toFixed(1);
         const barWidth = Math.max(0, Math.min(100, (s.score / maxScore) * 100)).toFixed(1);
         return '<div class="result-row">' +
-          '<div class="result-label"><span class="txt">' + s.label.replace(/</g, '&lt;') + '</span><span class="pct">' + pct + '%</span></div>' +
+          '<div class="result-label"><span class="txt">' + escapeHtml(s.label) + '</span><span class="pct">' + pct + '%</span></div>' +
           '<div class="result-bar-track"><div class="result-bar-fill" style="width:' + barWidth + '%"></div></div>' +
           '</div>';
       }).join('');
