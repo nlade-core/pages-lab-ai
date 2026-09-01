@@ -51,6 +51,14 @@
   #app {
     display: grid;
     grid-template-columns: 1fr 380px;
+    /* Without this, the grid's implicit single row auto-sizes to fit its
+       content instead of stretching to the container's own height -- the
+       real cause of the scroll bug: #chat-pane grew as tall as its
+       messages needed (well past the viewport) rather than being capped
+       at 100dvh, so #chat-log's flex:1/overflow-y:auto never had a fixed
+       height to actually overflow within. minmax(0, 1fr) forces the row
+       to the available height and lets it shrink below content size. */
+    grid-template-rows: minmax(0, 1fr);
     height: 100vh;
     height: 100dvh;
   }
@@ -258,9 +266,11 @@
     // own context, where the conversation is about to happen.
     function addStarterMessage(article) {
       const titleList = article.sections.map((s) => '- ' + s.title).join('\n');
-      const text = 'I\'ve read the summary of **' + article.title + '**, and I know the section titles below (not their full text yet -- I\'ll look one up if your question needs it).\n\n'
+      const text = '**' + article.title + '**\n\n'
+        + article.intro + '\n\n'
+        + 'That\'s the summary -- I also know these section titles (not their full text yet; I\'ll look one up if your question needs it):\n\n'
         + titleList
-        + '\n\nAsk me anything about the article, or about a specific section.';
+        + '\n\nAsk me anything about the article, or about a specific section above.';
       const row = document.createElement('div');
       row.className = 'msg starter';
       row.innerHTML = renderMarkdown(text);
