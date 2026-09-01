@@ -302,6 +302,19 @@
       </table>
     </div>
 
+    <div class="panel" id="findings-panel">
+      <h2>Findings (real Chrome, manually run and confirmed)</h2>
+      <p class="subnote" style="margin-bottom:0.75rem;">Not a stub run — these are conclusions from repeatedly running the tests above in real Chrome, across multiple sessions, with the results cross-checked against each other before being trusted.</p>
+      <p style="margin-bottom:0.75rem;">Chrome's built-in AI doesn't run on one shared thread, and it isn't fully independent either — it splits into two real execution lanes:</p>
+      <ul style="margin:0 0 0.75rem 1.25rem; padding:0;">
+        <li style="margin-bottom:0.4rem;"><b>Translator and Language Detector</b> are genuinely separate, lightweight, non-generative models. Fast (Language Detector: low single-digit milliseconds; Translator: tens of milliseconds), and never affected by anything else running alongside them — confirmed across every same-API and cross-API run.</li>
+        <li style="margin-bottom:0.4rem;"><b>Prompt API and Summarizer share one exclusive execution resource</b> — almost certainly the same underlying Gemini Nano model. Only one can run at a time; the other queues and waits for the full duration regardless of which API it is. Confirmed three separate times by matching arithmetic: the delayed API's concurrent finish time minus the winning API's concurrent finish time lands almost exactly on the delayed API's own solo baseline, every time — the signature of "waited for the other, then paid its own full cost," not coincidence.</li>
+        <li style="margin-bottom:0.4rem;">The "who looks independent" result for Prompt API vs. Summarizer specifically <b>rotates between runs</b> depending on which one happens to acquire the shared resource first — not because the sharing is inconsistent, but because a short task (Summarizer) queued behind a long one (Prompt API) shows a dramatic ratio, while a long task queued behind a short one barely registers on its own much larger timescale. Same underlying mechanism every time, just very different visibility depending on which one goes first.</li>
+        <li style="margin-bottom:0.4rem;"><b>Practical implication:</b> "route requests to a smaller/faster model to save time" only pays off for Translator and Language Detector, and even then the benefit is really about <i>not blocking</i> an in-flight Prompt API/Summarizer call (they run on separate, uncontended infrastructure), not raw speed for that task — Prompt API can already translate or detect language itself via prompting. Routing to Summarizer specifically buys nothing: it contends for the exact same resource as Prompt API, so there's no efficiency gain from using one over the other.</li>
+      </ul>
+      <p style="margin-bottom:0;"><b>Methodology note, kept here deliberately:</b> the concurrency test above went through three real design corrections before these conclusions were trustworthy — (1) raw start/end interval overlap can't detect serialization at all, since <code>Promise.all</code> dispatches every call at the same instant regardless of what happens internally; (2) comparing only the aggregate total against max/sum of baselines masks per-API differences — a per-API baseline comparison is needed; (3) <code>Promise.all(arr.map(...))</code> calls each function in fixed array order, so without shuffling, whichever API is listed first always wins a shared-queue race and looks falsely independent. Each was caught by testing the test itself against known-good and known-bad stub implementations before trusting a single live result.</p>
+    </div>
+
     <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
   </div>
 
