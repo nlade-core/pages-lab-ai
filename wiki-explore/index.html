@@ -424,9 +424,9 @@
     // question actually escalates to ranking -- see buildSystemPrompt
     // above), so this is the visitor's one guaranteed look at the full
     // section map regardless of whether their questions ever trigger that
-    // escalation. Summary open by default (short, worth reading
-    // immediately); Sections collapsed (a full tree is a lot to scroll
-    // past unopened). The markup stays real HTML (not run through
+    // escalation. Both collapsed by default -- neither is required
+    // reading to start chatting, so nothing forces itself on screen
+    // unopened. The markup stays real HTML (not run through
     // renderMarkdown/marked) since it's plain Wikipedia text, not model
     // output that needs markdown parsing. Nested <ul>s mirror the real
     // tree, not a flattened dump -- a subsection renders indented under
@@ -438,7 +438,7 @@
       const introHtml = article.intro.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
       const totalCount = flattenWithPaths(article.tree).length;
       const html = '<p>I\'ve loaded <strong>' + escapeHtml(article.title) + '</strong> -- ask me anything, or check what I know below:</p>'
-        + '<details open><summary>Summary</summary>' + introHtml + '</details>'
+        + '<details><summary>Summary</summary>' + introHtml + '</details>'
         + '<details><summary>Sections (' + totalCount + ')</summary>' + renderSectionList(article.tree) + '</details>';
       const row = document.createElement('div');
       row.className = 'msg starter';
