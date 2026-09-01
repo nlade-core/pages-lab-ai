@@ -272,6 +272,36 @@
       </table>
     </div>
 
+    <div class="panel" id="concurrency-panel">
+      <h2>Concurrency test</h2>
+      <p class="subnote" style="margin-bottom:0.75rem;">Fires multiple calls at once via <code>Promise.all</code> and records each one's real start/end time relative to a shared zero point. If two calls' time windows overlap, they ran in parallel; if the second only starts once the first ends, they were serialized.</p>
+
+      <h3 style="font-size:0.9rem;margin-bottom:0.5rem;">Same API, two concurrent calls</h3>
+      <div class="row">
+        <select id="same-api-select">
+          <option value="LanguageModel">Prompt API (LanguageModel)</option>
+          <option value="Summarizer">Summarizer</option>
+          <option value="Translator">Translator</option>
+          <option value="LanguageDetector">Language Detector</option>
+        </select>
+        <button id="same-api-btn">Run same-API test</button>
+      </div>
+      <div class="op-note" id="same-api-note"></div>
+      <table id="same-api-table" style="display:none;">
+        <thead><tr><th>Call</th><th>Start</th><th>End</th><th>Duration</th></tr></thead>
+        <tbody id="same-api-tbody"></tbody>
+      </table>
+
+      <h3 style="font-size:0.9rem;margin:1.25rem 0 0.5rem;">All four different APIs, at once</h3>
+      <p class="subnote" style="margin-bottom:0.75rem;">This is the one that actually answers whether they share a single underlying inference slot — if calls to four genuinely different APIs still queue behind each other, that's evidence of one shared thread across all of Chrome's built-in AI, not just per-API serialization.</p>
+      <button id="cross-api-btn">Run cross-API test</button>
+      <div class="op-note" id="cross-api-note"></div>
+      <table id="cross-api-table" style="display:none;">
+        <thead><tr><th>API</th><th>Start</th><th>End</th><th>Duration</th></tr></thead>
+        <tbody id="cross-api-tbody"></tbody>
+      </table>
+    </div>
+
     <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
   </div>
 
@@ -668,6 +698,139 @@
       compareTable.style.display = 'table';
       compareNote.textContent = 'Done — setup (create()) and task timed separately for each; run again to see warm vs. cold session cost.';
       compareBtn.disabled = false;
+    });
+
+    // --- Concurrency tests. Fires calls via Promise.all and records each
+    // one's real start/end offset relative to a shared t0 for display -- but
+    // NOTE: raw start-time overlap can't actually detect serialization on
+    // its own. Promise.all dispatches every call at the same instant, so
+    // every call's recorded "start" is always ~0ms whether the API runs it
+    // immediately or makes it wait its turn internally -- a queued call
+    // still looks like it "started" at the same moment from the caller's
+    // side, it just doesn't finish until much later. The real signal is in
+    // the FINISH times compared against a solo baseline: if N concurrent
+    // calls all finish around the time ONE call alone takes, they ran in
+    // parallel; if the slowest one finishes around N times the solo cost,
+    // they were serialized behind each other.
+    async function runOneTask(apiName, text, t0) {
+      const start = performance.now() - t0;
+      let output;
+      try {
+        if (apiName === 'LanguageModel') {
+          const session = await LanguageModel.create({ initialPrompts: [] });
+          output = await session.prompt(text);
+          session.destroy();
+        } else if (apiName === 'Summarizer') {
+          const s = await Summarizer.create({ type: 'tldr', format: 'plain-text', length: 'short' });
+          output = await s.summarize(text);
+        } else if (apiName === 'Translator') {
+          const t = await Translator.create({ sourceLanguage: 'en', targetLanguage: 'es' });
+          output = await t.translate(text);
+        } else if (apiName === 'LanguageDetector') {
+          const d = await LanguageDetector.create();
+          const r = await d.detect(text);
+          output = r[0] ? r[0].detectedLanguage : '(no result)';
+        }
+      } catch (e) {
+        output = 'Error: ' + e.message;
+      }
+      const end = performance.now() - t0;
+      return { start, end, output };
+    }
+
+    function renderTimeline(tbody, rows) {
+      tbody.innerHTML = rows.map((r) => '<tr><td>' + escapeHtml(r.label) + '</td><td>' + r.start.toFixed(0) + 'ms</td><td>' + r.end.toFixed(0) + 'ms</td><td>' + (r.end - r.start).toFixed(0) + 'ms</td></tr>').join('');
+    }
+
+    const NICE_NAME = { LanguageModel: 'Prompt API', Summarizer: 'Summarizer', Translator: 'Translator', LanguageDetector: 'Language Detector' };
+
+    async function measureSolo(apiName, text) {
+      const t0 = performance.now();
+      const r = await runOneTask(apiName, text, t0);
+      return r.end - r.start;
+    }
+
+    // --- Same-API concurrency ---
+    const sameApiSelect = document.getElementById('same-api-select');
+    const sameApiBtn = document.getElementById('same-api-btn');
+    const sameApiNote = document.getElementById('same-api-note');
+    const sameApiTable = document.getElementById('same-api-table');
+    const sameApiTbody = document.getElementById('same-api-tbody');
+
+    sameApiBtn.addEventListener('click', async () => {
+      sameApiBtn.disabled = true;
+      sameApiTable.style.display = 'none';
+      const apiName = sameApiSelect.value;
+      const niceName = NICE_NAME[apiName];
+      const text1 = 'The quick brown fox jumps over the lazy dog.';
+      const text2 = 'A different sentence entirely, used for the second concurrent call.';
+
+      sameApiNote.textContent = 'Measuring a solo ' + niceName + ' call first (baseline)…';
+      const solo = await measureSolo(apiName, text1);
+
+      sameApiNote.textContent = 'Now running two concurrent ' + niceName + ' calls…';
+      const t0 = performance.now();
+      const [r1, r2] = await Promise.all([
+        runOneTask(apiName, text1, t0),
+        runOneTask(apiName, text2, t0),
+      ]);
+      renderTimeline(sameApiTbody, [
+        { label: 'Solo baseline', start: 0, end: solo },
+        { label: 'Concurrent call 1', start: r1.start, end: r1.end },
+        { label: 'Concurrent call 2', start: r2.start, end: r2.end },
+      ]);
+      sameApiTable.style.display = 'table';
+      const concurrentTotal = Math.max(r1.end, r2.end);
+      // Fully parallel: both finish around the solo baseline. Fully
+      // serialized: the slower one finishes around 2x the baseline (it had
+      // to wait its turn, then pay the same real cost). The midpoint
+      // between those two outcomes is a safe threshold either way.
+      const ranInParallel = concurrentTotal < solo * 1.5;
+      sameApiNote.textContent = ranInParallel
+        ? niceName + ' ran the two calls concurrently — both finished in about the time one alone takes (solo baseline ' + solo.toFixed(0) + 'ms, concurrent finish ' + concurrentTotal.toFixed(0) + 'ms).'
+        : niceName + ' serialized the two calls — the slower one took about twice the solo baseline (solo baseline ' + solo.toFixed(0) + 'ms, concurrent finish ' + concurrentTotal.toFixed(0) + 'ms).';
+      sameApiBtn.disabled = false;
+    });
+
+    // --- Cross-API concurrency ---
+    const crossApiBtn = document.getElementById('cross-api-btn');
+    const crossApiNote = document.getElementById('cross-api-note');
+    const crossApiTable = document.getElementById('cross-api-table');
+    const crossApiTbody = document.getElementById('cross-api-tbody');
+
+    crossApiBtn.addEventListener('click', async () => {
+      crossApiBtn.disabled = true;
+      crossApiTable.style.display = 'none';
+      const text = 'The web platform has historically required every AI feature to ship its own model.';
+      const apiNames = ['LanguageModel', 'Summarizer', 'Translator', 'LanguageDetector'];
+
+      crossApiNote.textContent = 'Measuring solo baselines for each API first…';
+      const baselines = {};
+      for (const name of apiNames) {
+        baselines[name] = await measureSolo(name, text);
+      }
+      const sumOfBaselines = apiNames.reduce((sum, n) => sum + baselines[n], 0);
+      const maxBaseline = Math.max(...apiNames.map((n) => baselines[n]));
+
+      crossApiNote.textContent = 'Now running one call to each of the 4 APIs at the same time…';
+      const t0 = performance.now();
+      const results = await Promise.all(apiNames.map((name) => runOneTask(name, text, t0)));
+      const rows = results.map((r, i) => ({ label: NICE_NAME[apiNames[i]], start: r.start, end: r.end }));
+      renderTimeline(crossApiTbody, rows);
+      crossApiTable.style.display = 'table';
+
+      const concurrentTotal = Math.max(...results.map((r) => r.end));
+      // Fully parallel: total time should track the single SLOWEST API's
+      // own solo cost, regardless of how many others ran alongside it.
+      // Fully serialized (one shared queue across ALL of them): total time
+      // should track the SUM of every API's own solo cost, since each one
+      // has to wait for all the others first. The midpoint between those
+      // two reference points is a safe threshold either way.
+      const ranInParallel = concurrentTotal < (maxBaseline + sumOfBaselines) / 2;
+      crossApiNote.textContent = ranInParallel
+        ? 'Ran mostly concurrently — total time (' + concurrentTotal.toFixed(0) + 'ms) is much closer to the single slowest API\'s own solo time (' + maxBaseline.toFixed(0) + 'ms) than to the sum of all four (' + sumOfBaselines.toFixed(0) + 'ms). They don\'t all share one single inference queue.'
+        : 'Ran mostly serialized — total time (' + concurrentTotal.toFixed(0) + 'ms) is much closer to the SUM of all four APIs\' solo times (' + sumOfBaselines.toFixed(0) + 'ms) than to the single slowest one alone (' + maxBaseline.toFixed(0) + 'ms). Evidence of one shared inference queue across all of Chrome\'s built-in AI.';
+      crossApiBtn.disabled = false;
     });
   </script>
 </body>
