@@ -89,6 +89,14 @@
   .msg.assistant { align-self: flex-start; background: var(--bg); border: 1px solid var(--border); }
   .msg .role { display: block; font-size: 0.7rem; color: var(--muted); margin-bottom: 0.2rem; }
   .msg.section-note { align-self: center; background: transparent; border: none; color: var(--muted); font-size: 0.78rem; font-style: italic; padding: 0.2rem; }
+  .msg .md > *:first-child { margin-top: 0; }
+  .msg .md > *:last-child { margin-bottom: 0; }
+  .msg .md p, .msg .md ul, .msg .md ol { margin: 0.5rem 0; }
+  .msg .md ul, .msg .md ol { padding-left: 1.25rem; }
+  .msg .md code { background: color-mix(in srgb, var(--fg) 10%, transparent); border-radius: 4px; padding: 0.1rem 0.3rem; font-size: 0.85em; }
+  .msg .md pre { background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 6px; padding: 0.6rem; overflow-x: auto; margin: 0.5rem 0; }
+  .msg .md pre code { background: none; padding: 0; }
+  .msg.starter { align-self: stretch; max-width: 100%; background: var(--bg); border: 1px dashed var(--border); }
 
   #chat-composer { flex-shrink: 0; padding: 0.85rem; border-top: 1px solid var(--border); }
   #chat-composer .row { display: flex; gap: 0.5rem; }
@@ -135,6 +143,10 @@
   </div>
 
   <script type="module">
+    // Pinned to an exact version deliberately, same reasoning as every
+    // other CDN import across pages-lab-ai.
+    import { marked } from 'https://cdn.jsdelivr.net/npm/marked@18.0.11/lib/marked.esm.js';
+
     const ARTICLE_TITLE = 'Eiffel Tower';
 
     const articleTitleEl = document.getElementById('article-title');
@@ -149,6 +161,14 @@
 
     function escapeHtml(s) {
       return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+    // Escape first, then Markdown-parse the escaped text -- markdown's own
+    // syntax never uses &, <, or >, so this doesn't break formatting, and
+    // any literal HTML in the model's raw output renders as inert visible
+    // text instead of executable markup. Same pattern as chrome-ai's own
+    // chat demo, not something to solve differently here.
+    function renderMarkdown(text) {
+      return '<div class="md">' + marked.parse(escapeHtml(text)) + '</div>';
     }
 
     // --- Fetch + parse the article once. Plain-text extract, not HTML --
@@ -225,7 +245,25 @@
     function addMessage(role, text) {
       const row = document.createElement('div');
       row.className = 'msg ' + role;
-      row.innerHTML = '<span class="role">' + role + '</span>' + escapeHtml(text);
+      row.innerHTML = '<span class="role">' + role + '</span>' + renderMarkdown(text);
+      chatLog.appendChild(row);
+      chatLog.scrollTop = chatLog.scrollHeight;
+    }
+    // Shown once, right after the session is ready -- the model already
+    // has this exact summary + title list in its own (invisible) system
+    // prompt, but the VISITOR never sees it unless it's also surfaced
+    // here. Without this, someone would have to already know to scroll
+    // the article pane and read every heading before realizing what's
+    // actually askable -- this puts that same map directly in the chat's
+    // own context, where the conversation is about to happen.
+    function addStarterMessage(article) {
+      const titleList = article.sections.map((s) => '- ' + s.title).join('\n');
+      const text = 'I\'ve read the summary of **' + article.title + '**, and I know the section titles below (not their full text yet -- I\'ll look one up if your question needs it).\n\n'
+        + titleList
+        + '\n\nAsk me anything about the article, or about a specific section.';
+      const row = document.createElement('div');
+      row.className = 'msg starter';
+      row.innerHTML = renderMarkdown(text);
       chatLog.appendChild(row);
       chatLog.scrollTop = chatLog.scrollHeight;
     }
@@ -318,6 +356,7 @@
           },
         });
         chatNote.textContent = '';
+        addStarterMessage(article);
         chatInput.disabled = false;
         chatSendBtn.disabled = false;
         chatInput.focus();
