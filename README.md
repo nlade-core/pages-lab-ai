@@ -259,9 +259,13 @@ CPU-only Python can't give it.
   facts (below) each behind their own collapsed dropdown.
 
   The interesting part is the retrieval itself, hand-rolled since Gemini Nano has no native tool-calling.
-  It's staged, escalating only as far as a question actually needs: **(0)** the question goes in with
-  just the summary in context — most questions stop here, confirmed via the system prompt containing the
-  summary but no section titles or content at all up front. **(1)** if the model replies with exactly
+  It's staged, escalating only as far as a question actually needs: **(0)** the question goes in with the
+  summary, known facts, AND the section title tree (titles only, no content or char counts — those are
+  ranking-only, see below) already in context. Section titles were originally left out of the system
+  prompt entirely, reasoned about purely as retrieval cost; reconsidered on request — a model aware of the
+  full topic map from turn one can reference or guide a conversation, not just react to one question, and
+  a bare title list costs the same negligible ~200-300 tokens already measured cheap elsewhere. Most
+  questions still stop at this stage. **(1)** if the model replies with exactly
   `NEED_MORE_INFO`, a second call shows it the *entire* flattened section tree — full paths and a rough
   char-count size hint per node, titles and sizes only, still no content — and asks for its top 3 picks
   in priority order (`RANK: <first> | <second> | <third>`). **(2)** those ranked sections are injected
@@ -287,9 +291,10 @@ CPU-only Python can't give it.
   generalized version keeps whatever properties an item actually has, excluding only what's caught by two
   fully generic rules: (1) drop anything typed `external-id`, `url`, or `commonsMedia` (measured live: this
   alone cuts a rich item's ~180 properties to ~40, since the majority are cross-reference IDs to other
-  databases); (2) drop a ~130-property blocklist Wikidata *itself* formally classifies as being about the
-  Wikidata/Wikimedia entry rather than the real-world subject — queried live via SPARQL against three real
-  Wikidata classes, not hand-guessed, catching things rule (1) can't (like `maintained by WikiProject`).
+  databases); (2) drop a ~165-property blocklist Wikidata *itself* formally classifies as being about the
+  Wikidata/Wikimedia entry, or the subject's own online/social presence, rather than the real-world subject
+  — queried live via SPARQL against four real Wikidata classes, not hand-guessed, catching things rule (1)
+  can't (like `maintained by WikiProject`, `hashtag`, `social media followers`).
   Folded directly into the system prompt alongside the summary — a handful of facts is only a couple
   hundred tokens, negligible against Nano's context window, so there's no size problem to justify a
   `NEED_MORE_INFO`-style escalation the way section text gets one. Label resolution (an item-type value's
@@ -314,6 +319,16 @@ CPU-only Python can't give it.
   so surfacing both unlabeled would be actively misleading, not just noisy. Deciding which of an arbitrary
   article's remaining properties are *interesting* (versus merely not-excluded) is left for later — this
   generalizes correctly, but doesn't yet rank or curate beyond the two exclusion rules.
+
+  **Documented, not built:** three more noise properties still slip through every rule above — `described
+  by source`, `public domain date`, `offers view on`. Unlike the four classes already excluded, `described
+  by source`'s own Wikidata classification ("property to indicate a source") can't be blocklisted wholesale
+  — it also contains `author`, `publisher`, and `publication date`, genuinely useful top-level facts on a
+  book's or film's own Wikidata item, so removing the whole class would create a new gap to fix this one.
+  These three would need individual hand-adding instead, same as the two exceptions already in the
+  blocklist. Also noted but not acted on: the UI's starter-message dropdown order (currently Summary →
+  Sections → Known facts) arguably reads better as Summary → Known facts → Sections, grouping the two
+  "quick answer" sources together and leaving the "go deeper" option last.
 
   Chosen over two other researched "info exploration" directions, both still parked: Project Gutenberg
   (full public-domain books via Gutendex, parked as too big a stress-test for a first pass) and Openverse
