@@ -172,6 +172,11 @@
 
   .demo-disabled { opacity: 0.5; }
 
+  #compare-table { width: 100%; border-collapse: collapse; margin-top: 1rem; font-size: 0.85rem; }
+  #compare-table th, #compare-table td { text-align: left; padding: 0.5rem 0.6rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  #compare-table th { color: var(--muted); font-weight: 600; font-size: 0.78rem; }
+  #compare-table td:last-child { max-width: 260px; overflow-wrap: break-word; }
+
   footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
   a { color: var(--accent); }
 </style>
@@ -179,7 +184,7 @@
 <body>
   <div class="layout">
     <h1>pages-lab-ai</h1>
-    <p class="tagline">Chrome's own built-in AI (Gemini Nano), tested live in your browser — no model downloaded by this page at all.</p>
+    <p class="tagline">Chrome's own built-in AI (Gemini Nano), tested live in your browser — no model downloaded by this page at all. Live demos and setup-vs-processing timing for all four stable APIs: Prompt, Summarizer, Translator, Language Detector.</p>
     <p class="subnote">Sixth page in the pages-lab-ai family — see also <a href="../code-chat/">code chat</a>, the seventh, built on this page's own chat pipeline, <a href="../pyodide-nb/">a Pyodide notebook</a>, the eighth, a standalone code-execution environment on its way to becoming a tool that chat can call, <a href="../thinking-chat/">thinking chat</a>, the ninth, a faked reasoning mode with the thinking hidden behind a disclosure arrow, <a href="../code-agent/">code agent</a>, the tenth, which wires that Pyodide notebook into a chat as a real tool the model can call, <a href="../chat-threads/">chat threads</a>, the eleventh, multiple saved conversations kept in localStorage and only replayed into the model on demand, and <a href="../clip/">zero-shot classification</a>, the twelfth, the only page here that brings its own model rather than asking the browser. The odd one out: every other page brings its own model. This one asks the browser instead. <b>Chrome desktop only</b> (no Safari, no Firefox, no mobile). The Prompt API and Summarizer/Translator/Language Detector all ship on by <code>Default</code> on a recent Chrome — no flags needed, confirmed live on a real install. Writer/Rewriter/Proofreader still need <a href="https://developer.chrome.com/docs/ai/get-started" target="_blank" rel="noopener">manually enabling in chrome://flags</a>, and won't show as "available" below until you do. <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">Source</a>.</p>
 
     <div class="panel">
@@ -223,6 +228,48 @@
         <button id="chat-send-btn">Send</button>
       </div>
       <div class="op-note" id="chat-note"></div>
+    </div>
+
+    <div class="panel" id="translator-panel">
+      <h2>Translator</h2>
+      <textarea id="translate-input" placeholder="Text to translate…">The quick brown fox jumps over the lazy dog.</textarea>
+      <div class="row">
+        <select id="translate-source">
+          <option value="en" selected>English</option>
+          <option value="es">Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+        </select>
+        <select id="translate-target">
+          <option value="es" selected>Spanish</option>
+          <option value="fr">French</option>
+          <option value="de">German</option>
+          <option value="en">English</option>
+        </select>
+        <button id="translate-btn">Translate</button>
+      </div>
+      <div class="op-note" id="translate-note"></div>
+      <div id="translate-output" style="display:none;"></div>
+    </div>
+
+    <div class="panel" id="detect-panel">
+      <h2>Language Detector</h2>
+      <textarea id="detect-input" placeholder="Text to detect the language of…">Il fait beau aujourd'hui, n'est-ce pas?</textarea>
+      <button id="detect-btn">Detect language</button>
+      <div class="op-note" id="detect-note"></div>
+      <div id="detect-output" style="display:none;"></div>
+    </div>
+
+    <div class="panel" id="compare-panel">
+      <h2>Compare all four, same input</h2>
+      <p class="subnote" style="margin-bottom:0.75rem;">Feeds the exact same text to all four stable APIs and times two things separately for each: setting up the session/instance (<code>create()</code>) and the actual task call. Not a perfectly fair comparison — the four APIs do genuinely different jobs (chat vs. summarize vs. translate vs. classify) — but the input is identical, so relative setup and processing cost are directly comparable. Run it twice: the first run pays for a cold session; a second run (same page load) shows the warm cost.</p>
+      <textarea id="compare-input">The web platform has historically required every AI feature to ship its own model over the network. Chrome's built-in AI APIs take a different approach: a single small on-device model ships with the browser itself and is shared across every site that uses it.</textarea>
+      <button id="compare-btn">Run comparison</button>
+      <div class="op-note" id="compare-note"></div>
+      <table id="compare-table" style="display:none;">
+        <thead><tr><th>API</th><th>Setup (create())</th><th>Task</th><th>Total</th><th>Output</th></tr></thead>
+        <tbody id="compare-tbody"></tbody>
+      </table>
     </div>
 
     <footer>100% client-side. No upload, no server, no account. Part of the <a href="https://nlade-core.github.io/pages-lab/">pages-lab</a> family of experiments.</footer>
@@ -504,6 +551,124 @@
 
     chatSendBtn.addEventListener('click', sendChat);
     chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+
+    // --- Translator demo ---
+    const translateBtn = document.getElementById('translate-btn');
+    const translateNote = document.getElementById('translate-note');
+    const translateOutput = document.getElementById('translate-output');
+    translateBtn.addEventListener('click', async () => {
+      const text = document.getElementById('translate-input').value.trim();
+      if (!text) return;
+      translateBtn.disabled = true;
+      translateOutput.style.display = 'none';
+      const sourceLanguage = document.getElementById('translate-source').value;
+      const targetLanguage = document.getElementById('translate-target').value;
+      translateNote.textContent = 'Loading Translator (may download this language pair on first use)…';
+      try {
+        const translator = await Translator.create({
+          sourceLanguage, targetLanguage,
+          monitor(m) { m.addEventListener('downloadprogress', (e) => { translateNote.textContent = 'Downloading language pack… ' + Math.round(e.loaded * 100) + '%'; }); },
+        });
+        const t0 = performance.now();
+        const result = await translator.translate(text);
+        const elapsed = performance.now() - t0;
+        translateOutput.textContent = result;
+        translateOutput.style.display = 'block';
+        translateNote.textContent = 'Translated in ' + elapsed.toFixed(0) + 'ms, real inference, computed just now.';
+      } catch (e) {
+        translateNote.textContent = 'Error: ' + e.message;
+      }
+      translateBtn.disabled = false;
+    });
+
+    // --- Language Detector demo ---
+    const detectBtn = document.getElementById('detect-btn');
+    const detectNote = document.getElementById('detect-note');
+    const detectOutput = document.getElementById('detect-output');
+    detectBtn.addEventListener('click', async () => {
+      const text = document.getElementById('detect-input').value.trim();
+      if (!text) return;
+      detectBtn.disabled = true;
+      detectOutput.style.display = 'none';
+      detectNote.textContent = 'Loading Language Detector…';
+      try {
+        const detector = await LanguageDetector.create({
+          monitor(m) { m.addEventListener('downloadprogress', (e) => { detectNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%'; }); },
+        });
+        const t0 = performance.now();
+        const results = await detector.detect(text);
+        const elapsed = performance.now() - t0;
+        detectOutput.textContent = results.slice(0, 3).map((r) => r.detectedLanguage + ' (' + (r.confidence * 100).toFixed(1) + '%)').join('\n');
+        detectOutput.style.display = 'block';
+        detectNote.textContent = 'Detected in ' + elapsed.toFixed(0) + 'ms, real inference, computed just now.';
+      } catch (e) {
+        detectNote.textContent = 'Error: ' + e.message;
+      }
+      detectBtn.disabled = false;
+    });
+
+    // --- Compare all four, same input -- timed separately: setup (create())
+    // vs. the actual task call, since a cold create() can include a real
+    // model/language-pack download while the task call almost never does.
+    // Conflating the two would make "setup" look wildly inconsistent run to
+    // run for reasons that have nothing to do with the model itself.
+    const compareBtn = document.getElementById('compare-btn');
+    const compareNote = document.getElementById('compare-note');
+    const compareTable = document.getElementById('compare-table');
+    const compareTbody = document.getElementById('compare-tbody');
+
+    async function timeStep(fn) {
+      const t0 = performance.now();
+      const result = await fn();
+      return { ms: performance.now() - t0, result };
+    }
+
+    compareBtn.addEventListener('click', async () => {
+      const text = document.getElementById('compare-input').value.trim();
+      if (!text) return;
+      compareBtn.disabled = true;
+      compareTable.style.display = 'none';
+      compareTbody.innerHTML = '';
+      const rows = [];
+
+      compareNote.textContent = 'Running Prompt API…';
+      try {
+        const setup = await timeStep(() => LanguageModel.create({ initialPrompts: [] }));
+        const task = await timeStep(() => setup.result.prompt('Reply with a one-sentence summary of this text: ' + text));
+        rows.push({ api: 'Prompt API', setupMs: setup.ms, taskMs: task.ms, output: task.result });
+        setup.result.destroy();
+      } catch (e) { rows.push({ api: 'Prompt API', error: e.message }); }
+
+      compareNote.textContent = 'Running Summarizer…';
+      try {
+        const setup = await timeStep(() => Summarizer.create({ type: 'tldr', format: 'plain-text', length: 'short' }));
+        const task = await timeStep(() => setup.result.summarize(text));
+        rows.push({ api: 'Summarizer', setupMs: setup.ms, taskMs: task.ms, output: task.result });
+      } catch (e) { rows.push({ api: 'Summarizer', error: e.message }); }
+
+      compareNote.textContent = 'Running Translator…';
+      try {
+        const setup = await timeStep(() => Translator.create({ sourceLanguage: 'en', targetLanguage: 'es' }));
+        const task = await timeStep(() => setup.result.translate(text));
+        rows.push({ api: 'Translator', setupMs: setup.ms, taskMs: task.ms, output: task.result });
+      } catch (e) { rows.push({ api: 'Translator', error: e.message }); }
+
+      compareNote.textContent = 'Running Language Detector…';
+      try {
+        const setup = await timeStep(() => LanguageDetector.create());
+        const task = await timeStep(() => setup.result.detect(text));
+        const top = task.result[0];
+        rows.push({ api: 'Language Detector', setupMs: setup.ms, taskMs: task.ms, output: top ? top.detectedLanguage + ' (' + (top.confidence * 100).toFixed(1) + '%)' : '(no result)' });
+      } catch (e) { rows.push({ api: 'Language Detector', error: e.message }); }
+
+      compareTbody.innerHTML = rows.map((r) => {
+        if (r.error) return '<tr><td>' + escapeHtml(r.api) + '</td><td colspan="4">Error: ' + escapeHtml(r.error) + '</td></tr>';
+        return '<tr><td>' + escapeHtml(r.api) + '</td><td>' + r.setupMs.toFixed(0) + 'ms</td><td>' + r.taskMs.toFixed(0) + 'ms</td><td>' + (r.setupMs + r.taskMs).toFixed(0) + 'ms</td><td>' + escapeHtml(String(r.output)).slice(0, 200) + '</td></tr>';
+      }).join('');
+      compareTable.style.display = 'table';
+      compareNote.textContent = 'Done — setup (create()) and task timed separately for each; run again to see warm vs. cold session cost.';
+      compareBtn.disabled = false;
+    });
   </script>
 </body>
 </html>
