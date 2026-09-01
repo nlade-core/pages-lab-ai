@@ -486,23 +486,26 @@
           stack[stack.length - 1].children.push(node);
           stack.push(node);
         } else if (stack.length > 1) {
-          const top = stack[stack.length - 1];
-          top.ownText += (top.ownText ? '\n' : '') + line;
+          // Every non-blank line is one whole paragraph, always -- the
+          // API is inconsistent about whether a blank line separates two
+          // paragraphs (confirmed live: the "Origin" subsection has one,
+          // but "Construction" doesn't -- three consecutive paragraph
+          // lines with no blank line between any of them at all), so
+          // blank lines can't be trusted as the real delimiter anywhere,
+          // not just in the intro. An earlier version joined section-body
+          // lines with a single \n, correct only for the sections that
+          // happened to have blank-line separators, and silently
+          // collapsed multi-paragraph sections that didn't (like
+          // Construction) into one block -- caught only because a real
+          // person compared the render against the actual Wikipedia
+          // article, not by any automated check. Fixed the same way as
+          // the intro below: skip blank lines outright, join every real
+          // line with \n\n.
+          if (line.trim()) {
+            const top = stack[stack.length - 1];
+            top.ownText += (top.ownText ? '\n\n' : '') + line;
+          }
         } else if (line.trim()) {
-          // Unlike a section body (where the API already puts a blank
-          // line between its own paragraphs, naturally producing a \n\n
-          // gap once joined), the lead/intro comes back as one paragraph
-          // per LINE with no blank line between them at all -- confirmed
-          // live on two different articles. Joining with a single \n (as
-          // section bodies correctly do) collapsed the whole multi-
-          // paragraph intro into one undifferentiated block wherever it's
-          // rendered (both the main reading pane and the chat's Summary
-          // dropdown split on \n\n to find paragraph breaks) -- confirmed
-          // live too: the real deployed page rendered one 2,478-character
-          // <p> instead of four. Blank intro lines themselves (which
-          // exist only as trailing padding before the first heading) are
-          // skipped outright rather than joined, so they don't add stray
-          // blank paragraphs.
           intro += (intro ? '\n\n' : '') + line;
         }
       }
