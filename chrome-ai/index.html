@@ -293,11 +293,11 @@
       </table>
 
       <h3 style="font-size:0.9rem;margin:1.25rem 0 0.5rem;">All four different APIs, at once</h3>
-      <p class="subnote" style="margin-bottom:0.75rem;">This is the one that actually answers whether they share a single underlying inference slot — if calls to four genuinely different APIs still queue behind each other, that's evidence of one shared thread across all of Chrome's built-in AI, not just per-API serialization.</p>
+      <p class="subnote" style="margin-bottom:0.75rem;">This is the one that actually answers whether they share a single underlying inference slot. Each API's concurrent finish time is compared against its own solo baseline, not an aggregate — a sharper test than just checking the overall total. <b>One real limitation to know before trusting a single run:</b> the call order is randomized each time, but whichever API happens to go first in a given run always looks "independent" if there's one shared queue underneath — it's not proof, it's a first-mover artifact. Run it a few times: if the <i>same</i> API(s) stay independent no matter where they land in the shuffle, that's real independence; if it rotates run to run, that's a shared, contended resource.</p>
       <button id="cross-api-btn">Run cross-API test</button>
       <div class="op-note" id="cross-api-note"></div>
       <table id="cross-api-table" style="display:none;">
-        <thead><tr><th>API</th><th>Start</th><th>End</th><th>Duration</th></tr></thead>
+        <thead><tr><th>API</th><th>Solo baseline</th><th>Concurrent finish</th><th>Ratio</th><th>Verdict</th></tr></thead>
         <tbody id="cross-api-tbody"></tbody>
       </table>
     </div>
@@ -798,38 +798,96 @@
     const crossApiTable = document.getElementById('cross-api-table');
     const crossApiTbody = document.getElementById('cross-api-tbody');
 
+    // Per-API baseline comparison -- NOT an aggregate max/sum check. That
+    // earlier version could only say "does the total look more like the
+    // slowest one or the sum of all four," which can't actually tell true
+    // independence apart from partial resource contention (every API
+    // slowed down somewhat by sharing hardware, without one strictly
+    // queueing behind another). Comparing each API's own concurrent finish
+    // time against ITS OWN solo baseline answers a sharper, harder-to-fool
+    // question per API: did *this one* slow down at all by running
+    // alongside the other three, regardless of what happened to the rest.
+    function classifyRatio(ratio) {
+      if (ratio < 1.4) return 'independent';
+      if (ratio < 2.2) return 'some slowdown';
+      return 'serialized/contended';
+    }
+
+    // A single run of this test has an inherent blind spot: Promise.all
+    // calls each API's function synchronously in array order, so in a
+    // fully-shared-single-queue scenario, whichever API is FIRST in that
+    // order always grabs the shared resource first and looks falsely
+    // "independent" -- not because it truly is, but purely because it went
+    // first. Shuffling the order each run removes the deterministic bias
+    // (no one API is always favored), and tracking which API(s) come out
+    // "independent" across repeated runs is what actually distinguishes the
+    // two possibilities: if the SAME api is independent every time
+    // regardless of where it lands in the shuffle, that's real
+    // independence; if a DIFFERENT api looks independent depending on who
+    // happened to go first, that's a shared queue with race-order effects,
+    // not true parallelism.
+    let crossApiRunHistory = []; // array of arrays of API labels classified "independent" each run
+    function shuffled(arr) {
+      const a = arr.slice();
+      for (let i = a.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [a[i], a[j]] = [a[j], a[i]];
+      }
+      return a;
+    }
+
     crossApiBtn.addEventListener('click', async () => {
       crossApiBtn.disabled = true;
       crossApiTable.style.display = 'none';
       const text = 'The web platform has historically required every AI feature to ship its own model.';
-      const apiNames = ['LanguageModel', 'Summarizer', 'Translator', 'LanguageDetector'];
+      const apiNames = shuffled(['LanguageModel', 'Summarizer', 'Translator', 'LanguageDetector']);
 
       crossApiNote.textContent = 'Measuring solo baselines for each API first…';
       const baselines = {};
       for (const name of apiNames) {
         baselines[name] = await measureSolo(name, text);
       }
-      const sumOfBaselines = apiNames.reduce((sum, n) => sum + baselines[n], 0);
-      const maxBaseline = Math.max(...apiNames.map((n) => baselines[n]));
 
-      crossApiNote.textContent = 'Now running one call to each of the 4 APIs at the same time…';
+      crossApiNote.textContent = 'Now running one call to each of the 4 APIs at the same time (call order this run: ' + apiNames.map((n) => NICE_NAME[n]).join(' → ') + ')…';
       const t0 = performance.now();
       const results = await Promise.all(apiNames.map((name) => runOneTask(name, text, t0)));
-      const rows = results.map((r, i) => ({ label: NICE_NAME[apiNames[i]], start: r.start, end: r.end }));
-      renderTimeline(crossApiTbody, rows);
+
+      const perApi = apiNames.map((name, i) => {
+        const baseline = baselines[name];
+        const concurrentEnd = results[i].end;
+        const ratio = baseline > 0 ? concurrentEnd / baseline : (concurrentEnd > 0 ? Infinity : 1);
+        return { label: NICE_NAME[name], baseline, concurrentEnd, ratio, verdict: classifyRatio(ratio) };
+      });
+
+      crossApiTbody.innerHTML = perApi.map((p) =>
+        '<tr><td>' + escapeHtml(p.label) + '</td><td>' + p.baseline.toFixed(0) + 'ms</td><td>' + p.concurrentEnd.toFixed(0) + 'ms</td><td>' + p.ratio.toFixed(2) + '×</td><td>' + escapeHtml(p.verdict) + '</td></tr>'
+      ).join('');
       crossApiTable.style.display = 'table';
 
-      const concurrentTotal = Math.max(...results.map((r) => r.end));
-      // Fully parallel: total time should track the single SLOWEST API's
-      // own solo cost, regardless of how many others ran alongside it.
-      // Fully serialized (one shared queue across ALL of them): total time
-      // should track the SUM of every API's own solo cost, since each one
-      // has to wait for all the others first. The midpoint between those
-      // two reference points is a safe threshold either way.
-      const ranInParallel = concurrentTotal < (maxBaseline + sumOfBaselines) / 2;
-      crossApiNote.textContent = ranInParallel
-        ? 'Ran mostly concurrently — total time (' + concurrentTotal.toFixed(0) + 'ms) is much closer to the single slowest API\'s own solo time (' + maxBaseline.toFixed(0) + 'ms) than to the sum of all four (' + sumOfBaselines.toFixed(0) + 'ms). They don\'t all share one single inference queue.'
-        : 'Ran mostly serialized — total time (' + concurrentTotal.toFixed(0) + 'ms) is much closer to the SUM of all four APIs\' solo times (' + sumOfBaselines.toFixed(0) + 'ms) than to the single slowest one alone (' + maxBaseline.toFixed(0) + 'ms). Evidence of one shared inference queue across all of Chrome\'s built-in AI.';
+      const independentThisRun = perApi.filter((p) => p.verdict === 'independent').map((p) => p.label);
+      crossApiRunHistory.push(independentThisRun);
+
+      const allIndependent = perApi.every((p) => p.verdict === 'independent');
+      const allContended = perApi.every((p) => p.verdict !== 'independent');
+      const summary = perApi.map((p) => p.label + ': ' + p.ratio.toFixed(2) + '× (' + p.verdict + ')').join(', ');
+      let verdictLine = allIndependent
+        ? 'Every API finished close to its own solo baseline running alongside the others — genuinely independent, no shared inference slot. '
+        : allContended
+          ? 'Every API slowed down running alongside the others — evidence of a shared or contended resource across all four. '
+          : 'Mixed result — some ran independently, others slowed down sharing the device with the rest. ';
+      verdictLine += summary;
+
+      // Cross-reference against run history: only meaningful once there are
+      // 2+ runs, since a single run can't rule out the first-mover bias.
+      if (crossApiRunHistory.length > 1) {
+        const stableAcrossRuns = crossApiRunHistory.every((run) => run.length === independentThisRun.length && run.every((l) => independentThisRun.includes(l)));
+        verdictLine += stableAcrossRuns
+          ? ' (' + crossApiRunHistory.length + ' runs so far, same API(s) independent every time despite the shuffled call order — that\'s real independence, not a first-mover artifact.)'
+          : ' (' + crossApiRunHistory.length + ' runs so far, but which API(s) look "independent" has CHANGED between runs — that points to a shared, contended resource with race-order effects, not genuine independence. Run it a few more times to be sure.)';
+      } else {
+        verdictLine += ' (Run this again — a single run can\'t rule out one API just happening to go first in the shuffled order.)';
+      }
+      crossApiNote.textContent = verdictLine;
       crossApiBtn.disabled = false;
     });
   </script>
