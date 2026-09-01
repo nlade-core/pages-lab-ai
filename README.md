@@ -255,9 +255,8 @@ CPU-only Python can't give it.
   parsed into a real parent/child tree, not a flat list with a level number bolted on — every node
   carries its own char count and a rolled-up total across its whole subtree, confirmed against the real
   live article to reach genuine 3-deep nesting (`Design > Floors > 1st floor`). The starter chat message
-  shows a short intro with the summary open by default and the (nested, not flattened) section list
-  collapsed behind a second dropdown — no reason to hide the summary, but the full section tree is a lot
-  to scroll past unopened.
+  shows a short intro with the summary, the (nested, not flattened) section list, and a curated set of
+  Wikidata facts (below) each behind their own collapsed dropdown.
 
   The interesting part is the retrieval itself, hand-rolled since Gemini Nano has no native tool-calling.
   It's staged, escalating only as far as a question actually needs: **(0)** the question goes in with
@@ -281,20 +280,42 @@ CPU-only Python can't give it.
   parallelize with itself (see chrome-ai above), so a fully escalated question costs roughly 3-5x a
   plain one.
 
-  Chosen over three other researched "info exploration" directions: Wikidata (genuinely interesting
-  relationship exploration — confirmed via SPARQL that the Eiffel Tower's architect, Stephen Sauvestre,
-  also designed a chocolate factory nicknamed "the Cathedral building," a real discovery no article text
-  would surface — parked for later), Project Gutenberg (full public-domain books via Gutendex, parked as
-  too big a stress-test for a first pass), and Openverse (openly-licensed media search, deferred since
-  images/media are explicitly a later priority than text). Also visibly discloses the CC BY-SA 4.0
-  attribution this fuller display of an article needs, per Wikipedia's own reuse guidance. Verified with
-  Playwright against both a stub and the real live article: real headings render at their true nesting
-  depth with citation-only tail sections excluded, the system prompt confirmed to hold only the summary,
-  the full ranked multi-hop sequence confirmed via the actual `prompt()` arguments (including that a
-  satisfied rank-1 genuinely skips rank 2), the forced-final-answer and no-match fallbacks both confirmed
-  to never dead-end, the resizable split confirmed to clamp at both ends and persist across a reload, and
-  — a real bug caught after the first ship — the chat log itself couldn't scroll (CSS Grid's implicit row
-  was auto-sizing to content instead of the container's height; fixed with
+  Companion structured facts now come from Wikidata too — a small, hand-curated property allowlist
+  (height, architect, materials, floors, location, country, main contractor) resolved via the article's
+  linked Wikidata item and folded directly into the system prompt alongside the summary, since a handful
+  of facts is only a couple hundred tokens — negligible against Nano's context window, so there's no size
+  problem to justify a `NEED_MORE_INFO`-style escalation the way section text gets one. Deliberately
+  excludes inception/construction dates: the real item carries two conflicting dates with no preferred
+  rank and only an "applies to part" qualifier distinguishing them (pointing at two different sub-items,
+  not a clean started/completed split) — surfacing both unlabeled would be actively misleading, not just
+  noisy. Height had the same shape of conflict (three different values) but Wikidata marks one `preferred`
+  specifically to resolve exactly this, confirmed live before relying on it. Two real bugs caught testing
+  against the actual live API, not assumed away: a Quantity-typed value (floors above ground) rendered as
+  literal `[object Object]` under a naive `String()` fallback before being fixed to handle the real shape;
+  and a dimensionless quantity's unit is the bare string `"1"`, not a real entity — treating it as a Q-id
+  to resolve broke the *entire* batched labels call (Wikidata returns one top-level error for the whole
+  request if even one requested id is invalid), silently losing every other fact, not just the unitless
+  one. This is intentionally narrow, hand-curated for this one demo article, not a generic "any Wikipedia
+  topic" solution — deciding which of an arbitrary article's ~180 properties are actually interesting
+  (versus GeoNames/Structurae-style cross-reference IDs, the majority of them) is a harder problem,
+  deliberately deferred until page-choice is actually being built.
+
+  Chosen over two other researched "info exploration" directions, both still parked: Project Gutenberg
+  (full public-domain books via Gutendex, parked as too big a stress-test for a first pass) and Openverse
+  (openly-licensed media search, deferred since images/media are explicitly a later priority than text).
+  Wikidata's own deeper draw — relationship exploration, not just fact lookup (confirmed via SPARQL that
+  the Eiffel Tower's architect, Stephen Sauvestre, also designed a chocolate factory nicknamed "the
+  Cathedral building," a real discovery no article text would surface) — remains parked; what shipped
+  here is the narrower fact-lookup use, not that. Also visibly discloses the CC BY-SA 4.0 attribution this
+  fuller display of an article needs, per Wikipedia's own reuse guidance. Verified with Playwright against
+  both a stub and the real live article/Wikidata API: real headings render at their true nesting depth
+  with citation-only tail sections excluded, the system prompt confirmed to hold the summary and curated
+  facts but no section content, the full ranked multi-hop sequence confirmed via the actual `prompt()`
+  arguments (including that a satisfied rank-1 genuinely skips rank 2), the forced-final-answer and
+  no-match fallbacks both confirmed to never dead-end, the resizable split confirmed to clamp at both ends
+  and persist across a reload, a Wikidata failure confirmed to never block the article or chat from
+  working, and — a real bug caught after the first ship — the chat log itself couldn't scroll (CSS Grid's
+  implicit row was auto-sizing to content instead of the container's height; fixed with
   `grid-template-rows: minmax(0, 1fr)`).
 
 ## Considered, not built
