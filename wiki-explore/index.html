@@ -236,38 +236,57 @@
     //    reference IDs to other databases (GeoNames, Structurae, IMDb,
     //    etc.) or media/link properties, neither useful as text facts.
     // 2. A blocklist of properties Wikidata ITSELF formally classifies as
-    //    being about the Wikidata/Wikimedia entry rather than the real-
-    //    world subject -- queried live via SPARQL against three real
-    //    Wikidata classes (Q103824108 "property about Wikidata entities
-    //    themselves", Q18667213 "property about Wikimedia categories",
-    //    Q18610173 "property to link to Commons"), not hand-guessed. This
-    //    catches things the datatype rule can't, like `maintained by
-    //    WikiProject` (P6104) and `topic's main category` (P910) -- real
-    //    Wikipedia-editorial-process metadata, not facts about the
-    //    subject. Generated once from that query, not fetched live per
-    //    page load; worth periodically refreshing, not a one-time fact.
+    //    being about the Wikidata/Wikimedia entry (or the subject's own
+    //    online/social presence) rather than the real-world subject --
+    //    queried live via SPARQL against four real Wikidata classes
+    //    (Q103824108 "property about Wikidata entities themselves",
+    //    Q18667213 "property about Wikimedia categories", Q18610173
+    //    "property to link to Commons", Q30041186 "property related to
+    //    online communities"), not hand-guessed. This catches things the
+    //    datatype rule can't -- `maintained by WikiProject` (P6104),
+    //    `topic's main category` (P910), `hashtag` (P2572), `social media
+    //    followers` (P8687) -- none of them external-id/url/commonsMedia
+    //    typed, all of them still noise. Generated once from that query,
+    //    not fetched live per page load; worth periodically refreshing,
+    //    not a one-time fact.
     const WIKIDATA_META_PROPERTY_BLOCKLIST = new Set([
-      'P10', 'P10032', 'P10093', 'P10280', 'P10358', 'P10696', 'P109', 'P11101', 'P117', 'P11702',
-      'P11832', 'P1200', 'P12565', 'P12686', 'P12687', 'P12692', 'P12849', 'P12981', 'P13146', 'P13162',
-      'P13632', 'P13642', 'P13696', 'P13814', 'P14', 'P14387', 'P1442', 'P14511', 'P1464', 'P1465',
-      'P14687', 'P1472', 'P15', 'P154', 'P1543', 'P158', 'P1612', 'P1621', 'P1740', 'P1753',
+      'P10', 'P10027', 'P10032', 'P10048', 'P10093', 'P10280', 'P10358', 'P10649', 'P10650', 'P10651',
+      'P10696', 'P10756', 'P109', 'P10924', 'P10956', 'P11101', 'P11137', 'P11196', 'P11337', 'P11401',
+      'P11559', 'P117', 'P11702', 'P11832', 'P11947', 'P1200', 'P12565', 'P12686', 'P12687', 'P12692',
+      'P12849', 'P12981', 'P13146', 'P13162', 'P13236', 'P13362', 'P13390', 'P13392', 'P13632', 'P13642',
+      'P13696', 'P13801', 'P13814', 'P14', 'P14387', 'P1442', 'P14511', 'P1464', 'P1465', 'P14687',
+      'P1472', 'P1482', 'P15', 'P154', 'P1543', 'P158', 'P1612', 'P1621', 'P1740', 'P1753',
       'P1754', 'P1766', 'P1791', 'P1792', 'P18', 'P1801', 'P181', 'P1846', 'P1943', 'P1944',
-      'P1963', 'P2033', 'P207', 'P2343', 'P242', 'P2425', 'P2517', 'P2713', 'P2716', 'P2910',
-      'P2919', 'P2959', 'P301', 'P3030', 'P3311', 'P3383', 'P3451', 'P367', 'P373', 'P3876',
-      'P3896', 'P4004', 'P4045', 'P4047', 'P41', 'P4150', 'P4179', 'P4195', 'P4224', 'P4291',
-      'P4329', 'P443', 'P4640', 'P4656', 'P4669', 'P4896', 'P491', 'P5008', 'P51', 'P5252',
-      'P5555', 'P5775', 'P5962', 'P5996', 'P6104', 'P6112', 'P6186', 'P6365', 'P6655', 'P6802',
-      'P692', 'P7084', 'P7457', 'P7561', 'P7782', 'P7861', 'P7867', 'P8195', 'P8204', 'P8265',
-      'P8464', 'P8517', 'P8592', 'P8596', 'P8667', 'P8766', 'P8933', 'P8989', 'P910', 'P9126',
-      'P935', 'P94', 'P948', 'P9664', 'P971', 'P9721', 'P989', 'P990', 'P9906', 'P996',
+      'P1963', 'P1997', 'P2033', 'P207', 'P2343', 'P242', 'P2425', 'P2517', 'P2572', 'P2713',
+      'P2716', 'P2910', 'P2919', 'P2959', 'P301', 'P3030', 'P3265', 'P3311', 'P3383', 'P3417',
+      'P3451', 'P367', 'P373', 'P3876', 'P3896', 'P3984', 'P4004', 'P4045', 'P4047', 'P41',
+      'P4150', 'P4173', 'P4179', 'P4195', 'P4224', 'P4291', 'P4329', 'P443', 'P4640', 'P4656',
+      'P4669', 'P4896', 'P491', 'P5008', 'P51', 'P5252', 'P5436', 'P5555', 'P5775', 'P5962',
+      'P5996', 'P6104', 'P6112', 'P6186', 'P6365', 'P6655', 'P6802', 'P6900', 'P692', 'P7084',
+      'P7457', 'P7561', 'P7703', 'P7782', 'P7861', 'P7867', 'P8195', 'P8204', 'P8265', 'P8464',
+      'P8517', 'P8592', 'P8596', 'P8667', 'P8672', 'P8687', 'P8766', 'P8933', 'P8989', 'P9078',
+      'P910', 'P9126', 'P9345', 'P935', 'P94', 'P948', 'P9664', 'P9675', 'P9694', 'P971',
+      'P9721', 'P9819', 'P989', 'P990', 'P9906', 'P996', 'P998',
       // The formal query above isn't actually complete -- these two were
       // manually caught by eyeballing the raw Eiffel Tower dump BEFORE the
       // formal-classification approach existed, and confirmed live (via
       // this exact code, tested against the real API) to still slip
-      // through all three formal classes. Added directly rather than
+      // through all four formal classes. Added directly rather than
       // pretending the query alone was sufficient:
-      'P1705', // native label -- monolingualtext, not classified under any of the 3 classes above
+      'P1705', // native label -- monolingualtext, not classified under any of the 4 classes above
       'P1889', // different from -- classified only as a "symmetric property" (Q18647518), a LOGICAL trait shared with genuinely useful facts like spouse/sibling, so that whole class can't be blocklisted wholesale
+      // Known further gaps, deliberately NOT added yet (documented, not
+      // fixed, per explicit direction -- see the memory/README entry for
+      // this session): `described by source` (P1343), `public domain
+      // date` (P3893), and `offers view on` (P3173) are all still real
+      // noise that slips through every rule above. `described by
+      // source`'s own class (Q18608359, "property to indicate a
+      // source") is NOT safe to blocklist wholesale the way the other
+      // four are -- it also contains `author` (P50), `publisher`
+      // (P123), and `publication date` (P577), which would be
+      // genuinely useful top-level facts on a book's or film's own
+      // Wikidata item. These three would need individual hand-adding,
+      // same as P1705/P1889 above, not a 5th class.
     ]);
 
     // Label fallback order. An initial attempt measured this live (five
@@ -523,12 +542,27 @@
     // prose, a handful of curated structured facts is only a couple
     // hundred tokens, negligible against Nano's ~9,216-token window, so
     // there's no size problem to justify making the model ask for it.
+    //
+    // Section TITLES (not their content) are folded in too -- a real
+    // reconsideration, not the original design: the earlier version kept
+    // these out of the system prompt entirely, reasoning purely about
+    // single-question retrieval cost (why show a title list a question
+    // might not need?). That missed a different, real value: a model
+    // aware of the full topic map from turn one can reference or suggest
+    // sections proactively across a conversation, not just react to one
+    // question at a time -- and a bare title list (no char counts, those
+    // stay ranking-only) costs the same negligible ~200-300 tokens this
+    // family already measured cheap elsewhere. The escalation mechanism
+    // for pulling a section's real TEXT is unchanged -- this only adds
+    // awareness of what exists, not the content itself.
     function buildSystemPrompt(article, facts) {
       const factLines = (facts && facts.length)
         ? '\n\nKnown facts:\n' + facts.map((f) => '- ' + f.label + ': ' + f.value).join('\n')
         : '';
+      const sectionLines = '\n\nSections in this article (titles only -- ask and I\'ll look one up if needed):\n'
+        + flattenWithPaths(article.tree).map((f) => '- ' + f.path.join(' > ')).join('\n');
       return 'You are a helpful assistant answering questions about the Wikipedia article "' + article.title + '".\n\n'
-        + 'Summary:\n' + article.intro + factLines + '\n\n'
+        + 'Summary:\n' + article.intro + factLines + sectionLines + '\n\n'
         + 'Try to answer the user\'s question using the summary and known facts alone. If you can answer it confidently and directly, just answer normally.\n\n'
         + 'If that genuinely isn\'t enough to answer well, respond with EXACTLY this and nothing else:\n'
         + 'NEED_MORE_INFO';
