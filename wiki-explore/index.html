@@ -350,7 +350,7 @@
       const introHtml = article.intro.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
       const sectionItems = article.sections.map((s) => '<li>' + escapeHtml(s.title) + '</li>').join('');
       const html = '<p>I\'ve loaded <strong>' + escapeHtml(article.title) + '</strong> -- ask me anything, or check what I know below:</p>'
-        + '<details><summary>Summary</summary>' + introHtml + '</details>'
+        + '<details open><summary>Summary</summary>' + introHtml + '</details>'
         + '<details><summary>Sections (' + article.sections.length + ')</summary><ul>' + sectionItems + '</ul></details>';
       const row = document.createElement('div');
       row.className = 'msg starter';
