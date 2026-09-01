@@ -121,10 +121,8 @@
   .msg .md pre { background: color-mix(in srgb, var(--fg) 8%, transparent); border-radius: 6px; padding: 0.6rem; overflow-x: auto; margin: 0.5rem 0; }
   .msg .md pre code { background: none; padding: 0; }
   .msg.starter { align-self: stretch; max-width: 100%; background: var(--bg); border: 1px dashed var(--border); }
-  .msg.starter details { margin-top: 0.5rem; }
-  .msg.starter summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; padding: 0.25rem 0; }
-  .msg.starter details ul { margin: 0.4rem 0 0; }
-  .msg.starter details ul ul { margin-left: 1rem; }
+  .msg.starter ul { margin: 0.4rem 0 0.85rem; }
+  .msg.starter ul ul { margin-left: 1rem; }
 
   #chat-composer { flex-shrink: 0; padding: 0.85rem; border-top: 1px solid var(--border); }
   #chat-composer .row { display: flex; gap: 0.5rem; }
@@ -417,31 +415,27 @@
       chatLog.appendChild(row);
       chatLog.scrollTop = chatLog.scrollHeight;
     }
-    // Shown once, right after the session is ready -- the model already
-    // has this exact summary + title list in its own (invisible) system
-    // prompt, but the VISITOR never sees it unless it's also surfaced
-    // here. Without this, someone would have to already know to scroll
-    // the article pane and read every heading before realizing what's
-    // actually askable -- this puts that same map directly in the chat's
-    // own context, where the conversation is about to happen.
-    // Collapsed by default -- the model already has this exact summary +
-    // title list in its own (invisible) system prompt, so a visitor who
-    // just wants to start asking questions shouldn't have to scroll past
-    // a full dump of both first. The <details> stay real HTML (not run
-    // through renderMarkdown/marked) since their content is plain
-    // Wikipedia text, not model output that needs markdown parsing.
-    // Nested <ul>s mirror the real tree, not a flattened dump -- a
-    // subsection renders indented under its parent instead of appearing
-    // as just another same-level bullet.
+    // Shown once, right after the session is ready. The model only ever
+    // sees the summary up front now (section titles are shown later, only
+    // if a question actually escalates to ranking -- see buildSystemPrompt
+    // above), so this is the visitor's one guaranteed look at the full
+    // section map regardless of whether their questions ever trigger that
+    // escalation. Shown fully inline, not tucked behind a click -- both
+    // are short enough to just read. The markup stays real HTML (not run
+    // through renderMarkdown/marked) since it's plain Wikipedia text, not
+    // model output that needs markdown parsing. Nested <ul>s mirror the
+    // real tree, not a flattened dump -- a subsection renders indented
+    // under its parent instead of appearing as just another same-level
+    // bullet.
     function renderSectionList(nodes) {
       return '<ul>' + nodes.map((n) => '<li>' + escapeHtml(n.title) + (n.children.length ? renderSectionList(n.children) : '') + '</li>').join('') + '</ul>';
     }
     function addStarterMessage(article) {
       const introHtml = article.intro.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
       const totalCount = flattenWithPaths(article.tree).length;
-      const html = '<p>I\'ve loaded <strong>' + escapeHtml(article.title) + '</strong> -- ask me anything, or check what I know below:</p>'
-        + '<details open><summary>Summary</summary>' + introHtml + '</details>'
-        + '<details><summary>Sections (' + totalCount + ')</summary>' + renderSectionList(article.tree) + '</details>';
+      const html = '<p>I\'ve loaded <strong>' + escapeHtml(article.title) + '</strong> -- ask me anything. Here\'s what I know:</p>'
+        + '<p><strong>Summary</strong></p>' + introHtml
+        + '<p><strong>Sections (' + totalCount + ')</strong></p>' + renderSectionList(article.tree);
       const row = document.createElement('div');
       row.className = 'msg starter';
       row.innerHTML = '<div class="md">' + html + '</div>';
@@ -539,6 +533,12 @@
       try {
         article = await fetchArticle(ARTICLE_TITLE);
         renderArticle(article);
+        // Shown the moment the (fast) Wikipedia fetch is parsed -- doesn't
+        // wait on the model, which can take much longer if it needs a
+        // fresh download. The same summary/tree still gets fed to the
+        // model as its priming context below; this just means the
+        // visitor isn't staring at a blank chat pane in the meantime.
+        addStarterMessage(article);
       } catch (e) {
         articleTitleEl.textContent = 'Failed to load article';
         chatNote.textContent = 'Error loading article: ' + e.message;
@@ -572,7 +572,6 @@
           },
         });
         chatNote.textContent = '';
-        addStarterMessage(article);
         chatInput.disabled = false;
         chatSendBtn.disabled = false;
         chatInput.focus();
