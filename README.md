@@ -382,3 +382,28 @@ CPU-only Python can't give it.
 - **wiki-explore: an embedded map from the coordinates already in Known Facts** — a genuinely interesting
   idea, but a new capability (embedding a map widget), not something to pull from the Wikipedia API itself
   — worth treating as its own separate feature decision later, not bundled with this list.
+- **wiki-explore: a security/quality pass**, done, nothing critical — full findings below, for the next
+  session to act on rather than re-derive:
+  - Two quick wins, already fully reasoned through: drop the "Summary" dropdown from the chat's starter
+    message (pure duplication of the main reading pane now that its paragraphs render correctly); hand-add
+    the three still-slipping-through Wikidata noise properties (`described by source`/`public domain
+    date`/`offers view on`) individually to the blocklist, not via their shared class (which also contains
+    genuinely useful facts like `author`/`publisher` for other topics).
+  - A single lead image is recommended and cheap to add — `chrome-chat`'s `/wiki image` already solved the
+    fetch + Commons-licensing-safety check; this would be a port, not new work.
+  - Quality items, low urgency: `fetchArticle`/`resolveWikidataQid` throw a raw, unfriendly error if a
+    title doesn't resolve (unreachable today since the title is hardcoded, but relevant the moment
+    page-choice lands); `buildRankingPrompt` includes the *entire* flattened section list uncapped, fine
+    for this article's size but could get unwieldy on a much bigger/deeper one; `fetchWikidataFacts`'s
+    final loop accesses `propEntities[pid]` with no existence check.
+  - Security, both accepted/low-severity rather than fixed: a visitor's raw question is concatenated
+    directly into instruction-bearing prompt strings with no delimiter hardening (real prompt-injection
+    surface, but blast radius is just "the model says something odd in that visitor's own chat" — no
+    tool-use or page-mutation capability exists downstream); the pinned `marked` CDN import has no
+    Subresource Integrity hash (ES module `import` can't carry SRI the way `<script src>` can — same
+    accepted trust model as every other page in this family, not unique to this one). Escaping itself was
+    checked and found consistent and correct everywhere it matters.
+  - The bigger, standing next step behind all of this: page-choice / multiple articles — the actual reason
+    today's full retrieval + Wikidata-fact rebuild happened. The data model was deliberately kept free of
+    hardcoded state specifically so this doesn't mean reworking the retrieval logic, just adding a way to
+    pick/hold more than one article.
