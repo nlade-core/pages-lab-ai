@@ -219,32 +219,91 @@
 
     // --- Companion structured facts from Wikidata, entirely optional and
     // best-effort -- a failure here never blocks the article itself from
-    // loading (see init() below, which catches this separately). Hand-
-    // curated to a small property allowlist for THIS demo article, not a
-    // generic "dump everything" approach: a raw entity has ~180 distinct
-    // properties, most of them cross-reference IDs (GeoNames, Structurae,
-    // etc.) that are noise for a chat copilot, confirmed by actually
-    // pulling Q243's full claim set before building this. Two real
-    // properties were deliberately EXCLUDED after checking, not just
-    // assumed safe: `inception` has two dates (1887, 1889) with neither
-    // marked as the preferred rank and only an "applies to part" qualifier
-    // distinguishing them (pointing at two different sub-items, not a
-    // clean "started/completed" split) -- surfacing both unlabeled would
-    // be actively misleading, not just noisy, so it's left out rather than
-    // guessed at. Height had the same shape of problem (three conflicting
-    // values: 300m/324m/330m, measuring different things) but Wikidata
-    // marks one of them `rank: preferred` specifically to resolve exactly
-    // this -- confirmed live before relying on it, so height IS included,
-    // filtered to the preferred-rank statement.
-    const WIKIDATA_PROPERTIES = [
-      { pid: 'P2048', label: 'Height' },
-      { pid: 'P84', label: 'Architect' },
-      { pid: 'P186', label: 'Materials' },
-      { pid: 'P1101', label: 'Floors above ground' },
-      { pid: 'P131', label: 'Location' },
-      { pid: 'P17', label: 'Country' },
-      { pid: 'P193', label: 'Main contractor' },
-    ];
+    // loading (see init() below, which catches this separately).
+    //
+    // This is now GENERIC, not a hand-picked property allowlist -- an
+    // earlier version hardcoded 7 landmark-specific properties (height,
+    // architect, materials...), confirmed live to be completely useless
+    // for a non-landmark article (every one of the 7 was MISSING on Marie
+    // Curie's Wikidata item). Instead, every property an item actually has
+    // is kept UNLESS it's excluded by one of two generic rules, neither of
+    // which requires knowing what kind of topic this is:
+    //
+    // 1. Datatype exclusion -- drop any property typed `external-id`,
+    //    `url`, or `commonsMedia`. Measured live against the real Eiffel
+    //    Tower item: this alone cuts 178 properties to 43, since the
+    //    overwhelming majority of any item's properties are cross-
+    //    reference IDs to other databases (GeoNames, Structurae, IMDb,
+    //    etc.) or media/link properties, neither useful as text facts.
+    // 2. A blocklist of properties Wikidata ITSELF formally classifies as
+    //    being about the Wikidata/Wikimedia entry rather than the real-
+    //    world subject -- queried live via SPARQL against three real
+    //    Wikidata classes (Q103824108 "property about Wikidata entities
+    //    themselves", Q18667213 "property about Wikimedia categories",
+    //    Q18610173 "property to link to Commons"), not hand-guessed. This
+    //    catches things the datatype rule can't, like `maintained by
+    //    WikiProject` (P6104) and `topic's main category` (P910) -- real
+    //    Wikipedia-editorial-process metadata, not facts about the
+    //    subject. Generated once from that query, not fetched live per
+    //    page load; worth periodically refreshing, not a one-time fact.
+    const WIKIDATA_META_PROPERTY_BLOCKLIST = new Set([
+      'P10', 'P10032', 'P10093', 'P10280', 'P10358', 'P10696', 'P109', 'P11101', 'P117', 'P11702',
+      'P11832', 'P1200', 'P12565', 'P12686', 'P12687', 'P12692', 'P12849', 'P12981', 'P13146', 'P13162',
+      'P13632', 'P13642', 'P13696', 'P13814', 'P14', 'P14387', 'P1442', 'P14511', 'P1464', 'P1465',
+      'P14687', 'P1472', 'P15', 'P154', 'P1543', 'P158', 'P1612', 'P1621', 'P1740', 'P1753',
+      'P1754', 'P1766', 'P1791', 'P1792', 'P18', 'P1801', 'P181', 'P1846', 'P1943', 'P1944',
+      'P1963', 'P2033', 'P207', 'P2343', 'P242', 'P2425', 'P2517', 'P2713', 'P2716', 'P2910',
+      'P2919', 'P2959', 'P301', 'P3030', 'P3311', 'P3383', 'P3451', 'P367', 'P373', 'P3876',
+      'P3896', 'P4004', 'P4045', 'P4047', 'P41', 'P4150', 'P4179', 'P4195', 'P4224', 'P4291',
+      'P4329', 'P443', 'P4640', 'P4656', 'P4669', 'P4896', 'P491', 'P5008', 'P51', 'P5252',
+      'P5555', 'P5775', 'P5962', 'P5996', 'P6104', 'P6112', 'P6186', 'P6365', 'P6655', 'P6802',
+      'P692', 'P7084', 'P7457', 'P7561', 'P7782', 'P7861', 'P7867', 'P8195', 'P8204', 'P8265',
+      'P8464', 'P8517', 'P8592', 'P8596', 'P8667', 'P8766', 'P8933', 'P8989', 'P910', 'P9126',
+      'P935', 'P94', 'P948', 'P9664', 'P971', 'P9721', 'P989', 'P990', 'P9906', 'P996',
+      // The formal query above isn't actually complete -- these two were
+      // manually caught by eyeballing the raw Eiffel Tower dump BEFORE the
+      // formal-classification approach existed, and confirmed live (via
+      // this exact code, tested against the real API) to still slip
+      // through all three formal classes. Added directly rather than
+      // pretending the query alone was sufficient:
+      'P1705', // native label -- monolingualtext, not classified under any of the 3 classes above
+      'P1889', // different from -- classified only as a "symmetric property" (Q18647518), a LOGICAL trait shared with genuinely useful facts like spouse/sibling, so that whole class can't be blocklisted wholesale
+    ]);
+
+    // Label fallback order. An initial attempt measured this live (five
+    // real gaps found across 213 entities referenced from four test
+    // articles) but that sample was too small to responsibly rank
+    // languages by -- discarded in favor of reasoning about it directly:
+    // each additional language should cover topics a genuinely DIFFERENT
+    // population of editors cares about, not just be another big
+    // language that mostly re-covers what the previous picks already do.
+    // `mul` goes first regardless of any language stats -- it's not "a
+    // language that happened to cover a gap," it's Wikidata's own tag for
+    // an entire CLASS of gap (a name/term that was never going to get a
+    // real per-language translation in the first place, e.g. a person's
+    // own name -- see resolveWikidataQid's structural-engineer case).
+    // After that, `de`/`fr`/`es`/`ru`/`zh`/`ar`/`ja` were picked for being
+    // both large, independent labeling communities AND covering
+    // genuinely different scripts/geographies from each other (Central
+    // Europe, the Francophone world, the Hispanophone world, the
+    // Cyrillic sphere, East Asia via Chinese, the Arab world, and Japan
+    // specifically since its Wikipedia/Wikidata community is large and
+    // independently active despite partial script overlap with Chinese)
+    // -- rather than adding e.g. Portuguese or Italian, whose coverage
+    // likely overlaps heavily with Spanish/French already on the list.
+    // Measured separately: requesting all 9 costs nothing meaningful --
+    // ~27KB for a real 50-id batch (vs ~5KB for English alone), on a
+    // fetch that only ever happens once per page load, not per question.
+    const WIKIDATA_LABEL_LANGUAGES = ['en', 'mul', 'de', 'fr', 'es', 'ru', 'zh', 'ar', 'ja'];
+    const WIKIDATA_LABEL_LANGUAGES_PARAM = WIKIDATA_LABEL_LANGUAGES.join('|');
+
+    function pickLabel(labelsObj) {
+      if (!labelsObj) return null;
+      for (const lang of WIKIDATA_LABEL_LANGUAGES) {
+        if (labelsObj[lang]) return labelsObj[lang].value;
+      }
+      return null;
+    }
 
     async function resolveWikidataQid(title) {
       const res = await fetch('https://en.wikipedia.org/w/api.php?action=query&prop=pageprops&ppprop=wikibase_item&titles=' + encodeURIComponent(title) + '&format=json&origin=*');
@@ -265,15 +324,20 @@
       return preferred.length ? preferred : claims.filter((c) => c.rank !== 'deprecated');
     }
 
-    async function resolveWikidataLabels(qids) {
-      if (!qids.length) return {};
-      const res = await fetch('https://www.wikidata.org/w/api.php?action=wbgetentities&ids=' + qids.join('|') + '&props=labels&languages=en&format=json&origin=*');
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
+    // Fetches entity data (labels, and optionally datatype) for up to
+    // several hundred ids in batches of 50 -- `wbgetentities`'s real limit
+    // -- and returns a flat {id: entity} map. A single malformed id
+    // anywhere in a batch breaks that ENTIRE batch (confirmed live: one
+    // bad id returns a top-level error object with no `entities` key at
+    // all) -- callers are responsible for only passing well-formed ids in.
+    async function batchFetchWikidataEntities(ids, props) {
       const out = {};
-      for (const qid of qids) {
-        const ent = data.entities[qid];
-        out[qid] = (ent && ent.labels && ent.labels.en) ? ent.labels.en.value : qid;
+      for (let i = 0; i < ids.length; i += 50) {
+        const chunk = ids.slice(i, i + 50);
+        const res = await fetch('https://www.wikidata.org/w/api.php?action=wbgetentities&ids=' + chunk.join('|') + '&props=' + props + '&languages=' + WIKIDATA_LABEL_LANGUAGES_PARAM + '&format=json&origin=*');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const data = await res.json();
+        Object.assign(out, data.entities);
       }
       return out;
     }
@@ -283,31 +347,56 @@
     // "floors above ground" is a Quantity (`{amount, unit}`), same shape
     // as height, not a bare number -- an earlier version's naive
     // `String(dv)` fallback rendered it as the literal text
-    // "[object Object]" instead of the number, only caught by actually
-    // reading what came back rather than assuming a number-looking
-    // property would be a plain number.
+    // "[object Object]" instead of the number. Testing against two more
+    // genuinely different articles (monster truck, sandwich) surfaced two
+    // MORE shapes the same way: monolingualtext (`{text, language}`, e.g.
+    // "native label") and globe-coordinate (`{latitude, longitude}`, e.g.
+    // "coordinate location") -- both hit the exact same "[object Object]"
+    // bug before being added here explicitly.
+    //
     // Wikidata represents a dimensionless quantity's unit as the bare
     // string "1", not a real entity -- caught live testing "floors above
     // ground" (a plain count, no unit): treating "1" as a Q-id to resolve
-    // broke the ENTIRE batched labels call, not just that one value --
-    // `wbgetentities` returns a single top-level error object with no
-    // `entities` key at all if even one requested id is invalid, so this
-    // one bad id took every other real fact down with it.
+    // broke the ENTIRE batched labels call, not just that one value.
     function realUnitQid(dv) {
       const raw = dv.unit && dv.unit.split('/').pop();
       return (raw && raw !== '1') ? raw : null;
     }
 
-    function formatWikidataValue(dv, labels) {
-      if (dv.id) return labels[dv.id] || dv.id; // wikibase-item, e.g. architect
+    // Confirms an id is really a Wikidata ITEM reference (Q123) before
+    // trusting it as one -- caught live testing "sandwich": one property
+    // ("EntitySchema for this class") had a value of literal "E204", a
+    // Wikidata EntitySchema reference, not an item. Treating it as a Q-id
+    // to resolve broke the ENTIRE labels batch for that request -- same
+    // failure class as the "1" unit bug above, just via a different kind
+    // of non-item id slipping into the same collection logic, and only
+    // surfaced by testing an article the earlier two didn't cover.
+    function isWikidataItemId(id) {
+      return /^Q\d+$/.test(id);
+    }
+
+    function formatWikidataValue(dv, valueEntities) {
+      if (dv.id && isWikidataItemId(dv.id)) {
+        const label = valueEntities[dv.id] && pickLabel(valueEntities[dv.id].labels);
+        return label || dv.id; // no label in any tried language -- show the raw id rather than hide the fact entirely
+      }
+      if (dv.id) return dv.id; // a non-item id (e.g. an EntitySchema reference) -- shown as-is, never sent for label resolution
       if (dv.amount !== undefined) { // quantity, e.g. height, floor count
         const amount = dv.amount.replace(/^\+/, '');
         const unitQid = realUnitQid(dv);
-        const unitLabel = unitQid ? labels[unitQid] : null;
+        const unitLabel = unitQid && valueEntities[unitQid] && pickLabel(valueEntities[unitQid].labels);
         return unitLabel ? amount + ' ' + unitLabel : amount;
       }
-      return String(dv); // plain string/monolingualtext etc.
+      if (dv.time) return dv.time.replace(/^\+/, '').split('T')[0]; // ISO date, precision ignored -- not currently surfaced (see the excluded inception/date properties above)
+      if (dv.text !== undefined) return dv.text; // monolingualtext, e.g. native label
+      if (dv.latitude !== undefined) return dv.latitude + ', ' + dv.longitude; // globe-coordinate
+      return String(dv);
     }
+
+    // Some properties (e.g. a well-decorated person's "award received")
+    // can carry a long tail of values -- capped per property so one busy
+    // property can't dominate the whole fact block's size.
+    const MAX_VALUES_PER_FACT = 5;
 
     // Returns a flat [{label, value}] list, or [] if anything about this
     // fails -- callers treat this as pure enrichment, never a hard
@@ -319,31 +408,40 @@
       const data = await res.json();
       const claims = data.entities[qid].claims;
 
-      // Raw claim values are either plain data, a Quantity needing its
-      // unit resolved, or a pointer to another Wikidata item (e.g.
-      // architect -> Q778243, not "Stephen Sauvestre") -- every id that
-      // needs a label (item ids and quantity unit ids alike) is batched
-      // into ONE label-resolution call below, rather than a separate
-      // round trip per value.
+      const propIds = Object.keys(claims);
+      const propEntities = await batchFetchWikidataEntities(propIds, 'datatype|labels');
+
+      const keptPids = propIds.filter((pid) => {
+        const dt = propEntities[pid] && propEntities[pid].datatype;
+        if (dt === 'external-id' || dt === 'url' || dt === 'commonsMedia') return false;
+        if (WIKIDATA_META_PROPERTY_BLOCKLIST.has(pid)) return false;
+        return true;
+      });
+
+      // Item-type values and quantity units both need their own label
+      // lookup (e.g. architect -> Q778243, not "Stephen Sauvestre") --
+      // batched into as few requests as possible, separate from the
+      // property lookup above since these are entities, not properties.
       const idsToResolve = new Set();
-      WIKIDATA_PROPERTIES.forEach(({ pid }) => {
+      keptPids.forEach((pid) => {
         bestRankClaims(claims[pid] || []).forEach((c) => {
           const dv = c.mainsnak.datavalue && c.mainsnak.datavalue.value;
           if (!dv) return;
-          if (dv.id) idsToResolve.add(dv.id);
+          if (dv.id && isWikidataItemId(dv.id)) idsToResolve.add(dv.id); // non-item ids (e.g. an EntitySchema ref) are never sent for resolution -- see isWikidataItemId's comment
           const unitQid = realUnitQid(dv);
           if (unitQid) idsToResolve.add(unitQid);
         });
       });
-      const labels = await resolveWikidataLabels([...idsToResolve]);
+      const valueEntities = await batchFetchWikidataEntities([...idsToResolve], 'labels');
 
       const facts = [];
-      WIKIDATA_PROPERTIES.forEach(({ pid, label }) => {
+      keptPids.forEach((pid) => {
+        const plabel = pickLabel(propEntities[pid].labels) || pid;
         const values = bestRankClaims(claims[pid] || []).map((c) => {
           const dv = c.mainsnak.datavalue && c.mainsnak.datavalue.value;
-          return dv ? formatWikidataValue(dv, labels) : null;
-        }).filter(Boolean);
-        if (values.length) facts.push({ label, value: values.join(', ') });
+          return dv ? formatWikidataValue(dv, valueEntities) : null;
+        }).filter(Boolean).slice(0, MAX_VALUES_PER_FACT);
+        if (values.length) facts.push({ label: plabel, value: values.join(', ') });
       });
       return facts;
     }
