@@ -217,6 +217,137 @@
       return { title: page.title, intro, tree };
     }
 
+    // --- Companion structured facts from Wikidata, entirely optional and
+    // best-effort -- a failure here never blocks the article itself from
+    // loading (see init() below, which catches this separately). Hand-
+    // curated to a small property allowlist for THIS demo article, not a
+    // generic "dump everything" approach: a raw entity has ~180 distinct
+    // properties, most of them cross-reference IDs (GeoNames, Structurae,
+    // etc.) that are noise for a chat copilot, confirmed by actually
+    // pulling Q243's full claim set before building this. Two real
+    // properties were deliberately EXCLUDED after checking, not just
+    // assumed safe: `inception` has two dates (1887, 1889) with neither
+    // marked as the preferred rank and only an "applies to part" qualifier
+    // distinguishing them (pointing at two different sub-items, not a
+    // clean "started/completed" split) -- surfacing both unlabeled would
+    // be actively misleading, not just noisy, so it's left out rather than
+    // guessed at. Height had the same shape of problem (three conflicting
+    // values: 300m/324m/330m, measuring different things) but Wikidata
+    // marks one of them `rank: preferred` specifically to resolve exactly
+    // this -- confirmed live before relying on it, so height IS included,
+    // filtered to the preferred-rank statement.
+    const WIKIDATA_PROPERTIES = [
+      { pid: 'P2048', label: 'Height' },
+      { pid: 'P84', label: 'Architect' },
+      { pid: 'P186', label: 'Materials' },
+      { pid: 'P1101', label: 'Floors above ground' },
+      { pid: 'P131', label: 'Location' },
+      { pid: 'P17', label: 'Country' },
+      { pid: 'P193', label: 'Main contractor' },
+    ];
+
+    async function resolveWikidataQid(title) {
+      const res = await fetch('https://en.wikipedia.org/w/api.php?action=query&prop=pageprops&ppprop=wikibase_item&titles=' + encodeURIComponent(title) + '&format=json&origin=*');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const page = Object.values(data.query.pages)[0];
+      const qid = page.pageprops && page.pageprops.wikibase_item;
+      if (!qid) throw new Error('no linked Wikidata item for this article');
+      return qid;
+    }
+
+    // Wikidata's own mechanism for "which of several conflicting values is
+    // the real one": prefer any statement explicitly marked `preferred`;
+    // otherwise fall back to every non-deprecated (`normal`) one, since
+    // most properties here only ever have normal-rank statements at all.
+    function bestRankClaims(claims) {
+      const preferred = claims.filter((c) => c.rank === 'preferred');
+      return preferred.length ? preferred : claims.filter((c) => c.rank !== 'deprecated');
+    }
+
+    async function resolveWikidataLabels(qids) {
+      if (!qids.length) return {};
+      const res = await fetch('https://www.wikidata.org/w/api.php?action=wbgetentities&ids=' + qids.join('|') + '&props=labels&languages=en&format=json&origin=*');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const out = {};
+      for (const qid of qids) {
+        const ent = data.entities[qid];
+        out[qid] = (ent && ent.labels && ent.labels.en) ? ent.labels.en.value : qid;
+      }
+      return out;
+    }
+
+    // A raw claim value comes in one of several real shapes, not just
+    // plain strings -- caught live testing this against the actual data:
+    // "floors above ground" is a Quantity (`{amount, unit}`), same shape
+    // as height, not a bare number -- an earlier version's naive
+    // `String(dv)` fallback rendered it as the literal text
+    // "[object Object]" instead of the number, only caught by actually
+    // reading what came back rather than assuming a number-looking
+    // property would be a plain number.
+    // Wikidata represents a dimensionless quantity's unit as the bare
+    // string "1", not a real entity -- caught live testing "floors above
+    // ground" (a plain count, no unit): treating "1" as a Q-id to resolve
+    // broke the ENTIRE batched labels call, not just that one value --
+    // `wbgetentities` returns a single top-level error object with no
+    // `entities` key at all if even one requested id is invalid, so this
+    // one bad id took every other real fact down with it.
+    function realUnitQid(dv) {
+      const raw = dv.unit && dv.unit.split('/').pop();
+      return (raw && raw !== '1') ? raw : null;
+    }
+
+    function formatWikidataValue(dv, labels) {
+      if (dv.id) return labels[dv.id] || dv.id; // wikibase-item, e.g. architect
+      if (dv.amount !== undefined) { // quantity, e.g. height, floor count
+        const amount = dv.amount.replace(/^\+/, '');
+        const unitQid = realUnitQid(dv);
+        const unitLabel = unitQid ? labels[unitQid] : null;
+        return unitLabel ? amount + ' ' + unitLabel : amount;
+      }
+      return String(dv); // plain string/monolingualtext etc.
+    }
+
+    // Returns a flat [{label, value}] list, or [] if anything about this
+    // fails -- callers treat this as pure enrichment, never a hard
+    // requirement.
+    async function fetchWikidataFacts(title) {
+      const qid = await resolveWikidataQid(title);
+      const res = await fetch('https://www.wikidata.org/wiki/Special:EntityData/' + qid + '.json');
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const claims = data.entities[qid].claims;
+
+      // Raw claim values are either plain data, a Quantity needing its
+      // unit resolved, or a pointer to another Wikidata item (e.g.
+      // architect -> Q778243, not "Stephen Sauvestre") -- every id that
+      // needs a label (item ids and quantity unit ids alike) is batched
+      // into ONE label-resolution call below, rather than a separate
+      // round trip per value.
+      const idsToResolve = new Set();
+      WIKIDATA_PROPERTIES.forEach(({ pid }) => {
+        bestRankClaims(claims[pid] || []).forEach((c) => {
+          const dv = c.mainsnak.datavalue && c.mainsnak.datavalue.value;
+          if (!dv) return;
+          if (dv.id) idsToResolve.add(dv.id);
+          const unitQid = realUnitQid(dv);
+          if (unitQid) idsToResolve.add(unitQid);
+        });
+      });
+      const labels = await resolveWikidataLabels([...idsToResolve]);
+
+      const facts = [];
+      WIKIDATA_PROPERTIES.forEach(({ pid, label }) => {
+        const values = bestRankClaims(claims[pid] || []).map((c) => {
+          const dv = c.mainsnak.datavalue && c.mainsnak.datavalue.value;
+          return dv ? formatWikidataValue(dv, labels) : null;
+        }).filter(Boolean);
+        if (values.length) facts.push({ label, value: values.join(', ') });
+      });
+      return facts;
+    }
+
     // --- A real parent/child tree, not a flat list with a level number
     // bolted on. This matters for two reasons: (1) a subsection's own text
     // is often thin -- the real content usually lives one level deeper --
@@ -289,11 +420,19 @@
     // injected. ---
     const RANK_COUNT = 3;
 
-    function buildSystemPrompt(article) {
+    // `facts` (from fetchWikidataFacts) is always folded in here rather
+    // than treated as its own escalation stage -- unlike a full section's
+    // prose, a handful of curated structured facts is only a couple
+    // hundred tokens, negligible against Nano's ~9,216-token window, so
+    // there's no size problem to justify making the model ask for it.
+    function buildSystemPrompt(article, facts) {
+      const factLines = (facts && facts.length)
+        ? '\n\nKnown facts:\n' + facts.map((f) => '- ' + f.label + ': ' + f.value).join('\n')
+        : '';
       return 'You are a helpful assistant answering questions about the Wikipedia article "' + article.title + '".\n\n'
-        + 'Summary:\n' + article.intro + '\n\n'
-        + 'Try to answer the user\'s question using this summary alone. If you can answer it confidently and directly, just answer normally.\n\n'
-        + 'If the summary genuinely isn\'t enough to answer well, respond with EXACTLY this and nothing else:\n'
+        + 'Summary:\n' + article.intro + factLines + '\n\n'
+        + 'Try to answer the user\'s question using the summary and known facts alone. If you can answer it confidently and directly, just answer normally.\n\n'
+        + 'If that genuinely isn\'t enough to answer well, respond with EXACTLY this and nothing else:\n'
         + 'NEED_MORE_INFO';
     }
 
@@ -434,12 +573,23 @@
     function renderSectionList(nodes) {
       return '<ul>' + nodes.map((n) => '<li>' + escapeHtml(n.title) + (n.children.length ? renderSectionList(n.children) : '') + '</li>').join('') + '</ul>';
     }
-    function addStarterMessage(article) {
+    function renderFactsList(facts) {
+      return '<ul>' + facts.map((f) => '<li><strong>' + escapeHtml(f.label) + ':</strong> ' + escapeHtml(f.value) + '</li>').join('') + '</ul>';
+    }
+    function addStarterMessage(article, facts) {
       const introHtml = article.intro.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
       const totalCount = flattenWithPaths(article.tree).length;
+      // The facts dropdown only shows up at all if any facts actually came
+      // back -- Wikidata enrichment is best-effort (see fetchWikidataFacts),
+      // so a visitor never sees an empty "Known facts" shell on a load
+      // where it failed or came back empty.
+      const factsDetails = (facts && facts.length)
+        ? '<details><summary>Known facts (' + facts.length + ')</summary>' + renderFactsList(facts) + '</details>'
+        : '';
       const html = '<p>I\'ve loaded <strong>' + escapeHtml(article.title) + '</strong> -- ask me anything, or check what I know below:</p>'
         + '<details><summary>Summary</summary>' + introHtml + '</details>'
-        + '<details><summary>Sections (' + totalCount + ')</summary>' + renderSectionList(article.tree) + '</details>';
+        + '<details><summary>Sections (' + totalCount + ')</summary>' + renderSectionList(article.tree) + '</details>'
+        + factsDetails;
       const row = document.createElement('div');
       row.className = 'msg starter';
       row.innerHTML = '<div class="md">' + html + '</div>';
@@ -534,15 +684,27 @@
     }
 
     async function init() {
+      let facts = [];
       try {
-        article = await fetchArticle(ARTICLE_TITLE);
+        // Wikidata enrichment runs alongside the article fetch (it only
+        // needs the title, not the fetched article), but its own failure
+        // is swallowed right here and never allowed to fail the article
+        // load -- it's pure enrichment, not a requirement. Logged to the
+        // console rather than shown to the visitor, same as any other
+        // best-effort background enhancement.
+        const [articleResult, factsResult] = await Promise.all([
+          fetchArticle(ARTICLE_TITLE),
+          fetchWikidataFacts(ARTICLE_TITLE).catch((e) => { console.warn('Wikidata facts unavailable:', e.message); return []; }),
+        ]);
+        article = articleResult;
+        facts = factsResult;
         renderArticle(article);
         // Shown the moment the (fast) Wikipedia fetch is parsed -- doesn't
         // wait on the model, which can take much longer if it needs a
-        // fresh download. The same summary/tree still gets fed to the
-        // model as its priming context below; this just means the
+        // fresh download. The same summary/tree/facts still get fed to
+        // the model as its priming context below; this just means the
         // visitor isn't staring at a blank chat pane in the meantime.
-        addStarterMessage(article);
+        addStarterMessage(article, facts);
       } catch (e) {
         articleTitleEl.textContent = 'Failed to load article';
         chatNote.textContent = 'Error loading article: ' + e.message;
@@ -568,7 +730,7 @@
 
         chatNote.textContent = 'Preparing the model…';
         session = await LanguageModel.create({
-          initialPrompts: [{ role: 'system', content: buildSystemPrompt(article) }],
+          initialPrompts: [{ role: 'system', content: buildSystemPrompt(article, facts) }],
           monitor(m) {
             m.addEventListener('downloadprogress', (e) => {
               chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
