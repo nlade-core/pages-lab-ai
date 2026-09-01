@@ -250,32 +250,52 @@ CPU-only Python can't give it.
   back correctly.
 - [Wikipedia explorer](https://nlade-core.github.io/pages-lab-ai/wiki-explore/) — a two-pane reading
   experience: the actual Wikipedia article (rendered from its own plain-text extract, not fetched a
-  second time in a different format) on the left, a Gemini Nano copilot sidebar on the right. The
-  interesting part: Gemini Nano has no native tool-calling, so retrieval is hand-rolled. The model is
-  primed at page load with just the article's summary and its section *titles* (confirmed negligible —
-  a few hundred tokens for a real article), not the full text of any section. If a question needs more
-  than the summary, the model is instructed to reply with exactly `NEED_SECTION: <title>`; the app
-  catches that, looks up the real section text (already fetched, no new network call), injects it, and
-  asks a second time — only that final answer is ever shown, confirmed the marker text itself never
-  reaches the visible chat. A visible "Looking into the {title} section…" note explains the extra
-  wait, which is real and additive: Prompt API can't parallelize with itself (see chrome-ai above), so
-  needing a section roughly doubles whatever a normal reply already costs. Deliberately non-streaming
-  (`prompt()`, not `promptStreaming()`) for v1 — a `NEED_SECTION` marker is indistinguishable from the
-  start of a real answer until enough of it has arrived, and rendering it live risks the raw control
-  text flashing on screen before the app catches it; real streaming is a follow-up once the retrieval
-  logic itself is proven, not solved at the same time. Chosen over three other researched "info
-  exploration" directions: Wikidata (genuinely interesting relationship exploration — confirmed via
-  SPARQL that the Eiffel Tower's architect, Stephen Sauvestre, also designed a chocolate factory
-  nicknamed "the Cathedral building," a real discovery no article text would surface — parked for
-  later), Project Gutenberg (full public-domain books via Gutendex, parked as too big a stress-test for
-  a first pass), and Openverse (openly-licensed media search, deferred since images/media are
-  explicitly a later priority than text). Also visibly discloses the CC BY-SA 4.0 attribution this
-  fuller display of an article needs, per Wikipedia's own reuse guidance. Verified with Playwright:
-  real headings/intro render with citation-only tail sections excluded, the system prompt confirmed to
-  contain titles but NOT full section content, the two-call retrieval sequence confirmed via the
-  actual `prompt()` arguments, a hallucinated section title handled gracefully, and — a real bug
-  caught after shipping — the chat log itself couldn't scroll (CSS Grid's implicit row was auto-sizing
-  to content instead of the container's height; fixed with `grid-template-rows: minmax(0, 1fr)`).
+  second time in a different format) on the left, a Gemini Nano copilot sidebar on the right, with a
+  draggable splitter between them (clamped to sane minimums, persisted per-visitor). The article is
+  parsed into a real parent/child tree, not a flat list with a level number bolted on — every node
+  carries its own char count and a rolled-up total across its whole subtree, confirmed against the real
+  live article to reach genuine 3-deep nesting (`Design > Floors > 1st floor`). The starter chat message
+  shows a short intro with the summary open by default and the (nested, not flattened) section list
+  collapsed behind a second dropdown — no reason to hide the summary, but the full section tree is a lot
+  to scroll past unopened.
+
+  The interesting part is the retrieval itself, hand-rolled since Gemini Nano has no native tool-calling.
+  It's staged, escalating only as far as a question actually needs: **(0)** the question goes in with
+  just the summary in context — most questions stop here, confirmed via the system prompt containing the
+  summary but no section titles or content at all up front. **(1)** if the model replies with exactly
+  `NEED_MORE_INFO`, a second call shows it the *entire* flattened section tree — full paths and a rough
+  char-count size hint per node, titles and sizes only, still no content — and asks for its top 3 picks
+  in priority order (`RANK: <first> | <second> | <third>`). **(2)** those ranked sections are injected
+  one at a time, most likely first (each with its own full subtree text and heading path, e.g.
+  `Section path: Design > Materials`), checking after each whether that's now enough to answer and
+  stopping the moment it is — confirmed via a nested-subsection case that a rank-1 hit never touches
+  rank 2 at all. If the top-ranked pick isn't enough, the *last* ranked hop drops the `NEED_MORE_INFO`
+  option entirely and forces a real answer from whatever's been gathered so far, so this can never dead-
+  end without a response; an unmatched or garbled rank list degrades the same way, straight to one forced
+  best-effort call. Deliberately non-streaming (`prompt()`, not `promptStreaming()`) throughout — a
+  marker like `NEED_MORE_INFO` or `RANK:` is indistinguishable from the start of a real answer until
+  enough of it has arrived, and rendering it live risks raw control text flashing on screen; real
+  streaming is a follow-up once this logic is proven, not solved at the same time. Each escalation is
+  surfaced with a visible note ("checking which sections might help…", "Checking 'Design > Materials'
+  (1/2)…") rather than a silent wait, and each hop is real and additive cost — Prompt API can't
+  parallelize with itself (see chrome-ai above), so a fully escalated question costs roughly 3-5x a
+  plain one.
+
+  Chosen over three other researched "info exploration" directions: Wikidata (genuinely interesting
+  relationship exploration — confirmed via SPARQL that the Eiffel Tower's architect, Stephen Sauvestre,
+  also designed a chocolate factory nicknamed "the Cathedral building," a real discovery no article text
+  would surface — parked for later), Project Gutenberg (full public-domain books via Gutendex, parked as
+  too big a stress-test for a first pass), and Openverse (openly-licensed media search, deferred since
+  images/media are explicitly a later priority than text). Also visibly discloses the CC BY-SA 4.0
+  attribution this fuller display of an article needs, per Wikipedia's own reuse guidance. Verified with
+  Playwright against both a stub and the real live article: real headings render at their true nesting
+  depth with citation-only tail sections excluded, the system prompt confirmed to hold only the summary,
+  the full ranked multi-hop sequence confirmed via the actual `prompt()` arguments (including that a
+  satisfied rank-1 genuinely skips rank 2), the forced-final-answer and no-match fallbacks both confirmed
+  to never dead-end, the resizable split confirmed to clamp at both ends and persist across a reload, and
+  — a real bug caught after the first ship — the chat log itself couldn't scroll (CSS Grid's implicit row
+  was auto-sizing to content instead of the container's height; fixed with
+  `grid-template-rows: minmax(0, 1fr)`).
 
 ## Considered, not built
 

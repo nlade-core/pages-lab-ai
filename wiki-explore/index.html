@@ -124,6 +124,7 @@
   .msg.starter details { margin-top: 0.5rem; }
   .msg.starter summary { cursor: pointer; font-weight: 600; font-size: 0.85rem; padding: 0.25rem 0; }
   .msg.starter details ul { margin: 0.4rem 0 0; }
+  .msg.starter details ul ul { margin-left: 1rem; }
 
   #chat-composer { flex-shrink: 0; padding: 0.85rem; border-top: 1px solid var(--border); }
   #chat-composer .row { display: flex; gap: 0.5rem; }
@@ -212,64 +213,147 @@
       const data = await res.json();
       const page = Object.values(data.query.pages)[0];
       const extract = page.extract || '';
+      const { intro, tree } = parseArticleTree(extract);
+      return { title: page.title, intro, tree };
+    }
+
+    // --- A real parent/child tree, not a flat list with a level number
+    // bolted on. This matters for two reasons: (1) a subsection's own text
+    // is often thin -- the real content usually lives one level deeper --
+    // so injecting "a section" should mean its whole subtree, not just its
+    // own paragraph; (2) two different subsections that happen to share a
+    // name (e.g. two "Overview"s under different parents) need their path
+    // to tell them apart, which a flat list can't express. ---
+    function parseArticleTree(extract) {
       const lines = extract.split('\n');
+      const root = { title: null, level: 1, ownText: '', children: [] };
+      const stack = [root];
       let intro = '';
-      const sections = [];
-      let current = null;
       for (const line of lines) {
         const m = line.match(/^(={2,6})\s*(.+?)\s*\1$/);
         if (m) {
-          if (current) sections.push(current);
-          current = { level: m[1].length, title: m[2].trim(), text: '' };
-        } else if (current) {
-          current.text += (current.text ? '\n' : '') + line;
+          const level = m[1].length;
+          while (stack.length > 1 && stack[stack.length - 1].level >= level) stack.pop();
+          const node = { title: m[2].trim(), level, ownText: '', children: [] };
+          stack[stack.length - 1].children.push(node);
+          stack.push(node);
+        } else if (stack.length > 1) {
+          const top = stack[stack.length - 1];
+          top.ownText += (top.ownText ? '\n' : '') + line;
         } else {
           intro += (intro ? '\n' : '') + line;
         }
       }
-      if (current) sections.push(current);
       // Citations/links-only tail sections aren't useful reading or
       // retrieval content -- stop there, same convention as chrome-chat's
-      // /wiki full.
+      // /wiki full. Only checked at the top level; a nested section that
+      // happens to share one of these names is left alone.
       const stop = ['See also', 'References', 'External links', 'Notes', 'Further reading', 'Bibliography'];
-      const stopIdx = sections.findIndex((s) => stop.includes(s.title));
-      const kept = stopIdx === -1 ? sections : sections.slice(0, stopIdx);
-      return { title: page.title, intro: intro.trim(), sections: kept };
+      const stopIdx = root.children.findIndex((s) => stop.includes(s.title));
+      const kept = stopIdx === -1 ? root.children : root.children.slice(0, stopIdx);
+      kept.forEach(annotateCounts);
+      return { intro: intro.trim(), tree: kept };
+    }
+
+    // Own text length, and a total including every descendant -- the
+    // total is what actually gets pasted into the model's context when
+    // this node is chosen (see getSubtreeText), so that's the number that
+    // matters for judging how much a retrieval hop will cost. Own count
+    // is kept too, as the natural seed for chunking a section later if an
+    // article ever has one large enough to need it.
+    function annotateCounts(node) {
+      node.ownCharCount = node.ownText.length;
+      node.totalCharCount = node.ownCharCount + node.children.reduce((sum, c) => sum + annotateCounts(c), 0);
+      return node.totalCharCount;
+    }
+
+    function renderNode(node) {
+      const tag = 'h' + Math.min(node.level, 4);
+      const body = node.ownText.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
+      const childHtml = node.children.map(renderNode).join('');
+      return '<' + tag + '>' + escapeHtml(node.title) + '</' + tag + '>' + body + childHtml;
     }
 
     function renderArticle(article) {
       articleTitleEl.textContent = article.title;
       articleIntroEl.innerHTML = article.intro.split('\n\n').map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
-      articleBodyEl.innerHTML = article.sections.map((s) => {
-        const tag = 'h' + Math.min(s.level, 4);
-        const body = s.text.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
-        return '<' + tag + '>' + escapeHtml(s.title) + '</' + tag + '>' + body;
-      }).join('');
+      articleBodyEl.innerHTML = article.tree.map(renderNode).join('');
       attributionEl.innerHTML = 'Content from <a href="https://en.wikipedia.org/wiki/' + encodeURIComponent(article.title.replace(/ /g, '_')) + '" target="_blank" rel="noopener">Wikipedia: ' + escapeHtml(article.title) + '</a>, available under the <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA 4.0</a> license.';
       attributionEl.style.display = 'block';
     }
 
     // --- The retrieval loop. Gemini Nano has no native tool-calling, so
-    // this is hand-rolled: the model is told up front what sections
-    // EXIST (titles only, not their content) and instructed to ask for
-    // one by name if the summary isn't enough, via a plain-text marker
-    // rather than a real function call. ---
+    // this is hand-rolled in stages: try the summary alone first: only
+    // if that's not enough does the model see the section tree at all,
+    // and only the specific subtree(s) it picks ever get their full text
+    // injected. ---
+    const RANK_COUNT = 3;
+
     function buildSystemPrompt(article) {
-      const titles = article.sections.map((s) => '- ' + s.title).join('\n');
       return 'You are a helpful assistant answering questions about the Wikipedia article "' + article.title + '".\n\n'
-        + 'You have been given a summary of the article and a list of its section titles. You do NOT have the full text of any section yet.\n\n'
         + 'Summary:\n' + article.intro + '\n\n'
-        + 'Section titles:\n' + titles + '\n\n'
-        + 'If the summary is enough to answer the user\'s question, answer normally and directly.\n\n'
-        + 'If you need a specific section\'s real text to answer well, respond with EXACTLY this and nothing else:\n'
-        + 'NEED_SECTION: <exact section title from the list above>\n\n'
-        + 'Only use NEED_SECTION when you genuinely need it -- do not guess at a section\'s content, and do not use NEED_SECTION for information already in the summary.';
+        + 'Try to answer the user\'s question using this summary alone. If you can answer it confidently and directly, just answer normally.\n\n'
+        + 'If the summary genuinely isn\'t enough to answer well, respond with EXACTLY this and nothing else:\n'
+        + 'NEED_MORE_INFO';
     }
 
-    function findSection(article, requestedTitle) {
+    // Flattened on demand from the tree, not stored redundantly -- the
+    // tree stays the one source of truth. `path` is the full ancestor
+    // chain (including the node's own title), used both for showing the
+    // model real hierarchy when ranking and for disambiguating same-named
+    // subsections under different parents.
+    function flattenWithPaths(nodes, ancestors) {
+      ancestors = ancestors || [];
+      let out = [];
+      for (const node of nodes) {
+        const path = ancestors.concat([node.title]);
+        out.push({ node, path });
+        out = out.concat(flattenWithPaths(node.children, path));
+      }
+      return out;
+    }
+
+    // The full text of a node and everything nested under it, rendered
+    // back out with the same == heading markers the source extract used
+    // -- so a subsection's own heading, and any of ITS children, stay
+    // visibly structured rather than arriving as one flat undifferentiated
+    // block of text.
+    function getSubtreeText(node) {
+      const marker = '='.repeat(Math.min(node.level, 6));
+      let text = marker + ' ' + node.title + ' ' + marker + (node.ownText ? '\n' + node.ownText : '');
+      for (const child of node.children) {
+        text += '\n\n' + getSubtreeText(child);
+      }
+      return text;
+    }
+
+    function findNode(flatList, requestedTitle) {
       const norm = requestedTitle.trim().toLowerCase();
-      return article.sections.find((s) => s.title.toLowerCase() === norm)
-        || article.sections.find((s) => s.title.toLowerCase().includes(norm) || norm.includes(s.title.toLowerCase()));
+      let hit = flatList.find((f) => f.path.join(' > ').toLowerCase() === norm);
+      if (hit) return hit;
+      hit = flatList.find((f) => f.node.title.toLowerCase() === norm);
+      if (hit) return hit;
+      return flatList.find((f) => f.node.title.toLowerCase().includes(norm) || norm.includes(f.node.title.toLowerCase()));
+    }
+
+    function buildRankingPrompt(question, flatList) {
+      const lines = flatList.map((f) => '- ' + f.path.join(' > ') + ' (~' + f.node.totalCharCount + ' chars)');
+      return 'The summary wasn\'t enough to answer this question: "' + question + '"\n\n'
+        + 'Here are the article\'s sections, with a rough size in characters:\n' + lines.join('\n') + '\n\n'
+        + 'List up to ' + RANK_COUNT + ' sections most likely to contain the answer, in priority order, using their exact names from the list above (fewer than ' + RANK_COUNT + ' is fine if fewer seem relevant). Respond with EXACTLY this format and nothing else:\n'
+        + 'RANK: <first choice> | <second choice> | <third choice>';
+    }
+
+    function parseRankResponse(response, flatList) {
+      const m = response.match(/^RANK:\s*(.+)$/is);
+      if (!m) return [];
+      const names = m[1].split('|').map((s) => s.trim()).filter(Boolean).slice(0, RANK_COUNT);
+      const hits = [];
+      for (const name of names) {
+        const hit = findNode(flatList, name);
+        if (hit && !hits.includes(hit)) hits.push(hit);
+      }
+      return hits;
     }
 
     // --- Resizable article/chat split. Grid column widths, not flex-basis,
@@ -346,12 +430,18 @@
     // a full dump of both first. The <details> stay real HTML (not run
     // through renderMarkdown/marked) since their content is plain
     // Wikipedia text, not model output that needs markdown parsing.
+    // Nested <ul>s mirror the real tree, not a flattened dump -- a
+    // subsection renders indented under its parent instead of appearing
+    // as just another same-level bullet.
+    function renderSectionList(nodes) {
+      return '<ul>' + nodes.map((n) => '<li>' + escapeHtml(n.title) + (n.children.length ? renderSectionList(n.children) : '') + '</li>').join('') + '</ul>';
+    }
     function addStarterMessage(article) {
       const introHtml = article.intro.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
-      const sectionItems = article.sections.map((s) => '<li>' + escapeHtml(s.title) + '</li>').join('');
+      const totalCount = flattenWithPaths(article.tree).length;
       const html = '<p>I\'ve loaded <strong>' + escapeHtml(article.title) + '</strong> -- ask me anything, or check what I know below:</p>'
         + '<details open><summary>Summary</summary>' + introHtml + '</details>'
-        + '<details><summary>Sections (' + article.sections.length + ')</summary><ul>' + sectionItems + '</ul></details>';
+        + '<details><summary>Sections (' + totalCount + ')</summary>' + renderSectionList(article.tree) + '</details>';
       const row = document.createElement('div');
       row.className = 'msg starter';
       row.innerHTML = '<div class="md">' + html + '</div>';
@@ -371,43 +461,78 @@
 
     // v1 deliberately uses non-streaming prompt() throughout, not
     // promptStreaming(). Streaming would mean rendering chunks live as
-    // they arrive -- but a NEED_SECTION marker looks identical to the
-    // start of a real answer until enough of it has streamed in, risking
-    // the raw "NEED_SEC..." control text flashing on screen before the
-    // app catches it. Waiting for the complete response first makes the
+    // they arrive -- but a marker like NEED_MORE_INFO or RANK: looks
+    // identical to the start of a real answer until enough of it has
+    // streamed in, risking raw control text flashing on screen before the
+    // app catches it. Waiting for the complete response first makes every
     // marker check unambiguous. Real streaming is a follow-up once this
     // retrieval logic itself is proven out, not something to solve at
     // the same time.
+    //
+    // Three stages, escalating only as far as needed:
+    //   0. The question goes in with just the summary in context (already
+    //      in the system prompt). Most questions stop here.
+    //   1. If the model says NEED_MORE_INFO, it's shown the full section
+    //      tree (titles + rough sizes, not content) and asked to rank the
+    //      top few most likely to help.
+    //   2. Those ranked sections are injected one at a time, most likely
+    //      first, checking after each whether that's now enough to
+    //      answer -- stopping as soon as it is, and forcing a final
+    //      answer once the last rank is exhausted so this can never dead-
+    //      end without a response.
     async function askQuestion(question) {
       chatInput.value = '';
       chatSendBtn.disabled = true;
       chatInput.disabled = true;
       addMessage('user', question);
-      chatNote.textContent = 'Thinking…';
+      chatNote.textContent = 'Checking the summary…';
       try {
-        let response = await session.prompt(question);
-        const match = response.match(/^NEED_SECTION:\s*(.+)$/i);
-        if (match) {
-          const requestedTitle = match[1].trim();
-          const section = findSection(article, requestedTitle);
-          if (section) {
-            addSectionNote('Looking into the "' + section.title + '" section…');
-            chatNote.textContent = 'Looking into the "' + section.title + '" section…';
-            response = await session.prompt('Here is the "' + section.title + '" section of the article:\n\n' + section.text + '\n\nNow answer the original question: ' + question);
-          } else {
-            addSectionNote('Model asked for "' + requestedTitle + '", which isn\'t a real section -- re-asking without it.');
-            chatNote.textContent = 'Re-checking…';
-            response = await session.prompt('There is no section titled "' + requestedTitle + '" in this article. Please answer as best you can with the summary information you already have, without using NEED_SECTION again.');
-          }
+        const response = await session.prompt(question);
+        if (!/^NEED_MORE_INFO\b/i.test(response.trim())) {
+          addMessage('assistant', response);
+          chatNote.textContent = '';
+        } else {
+          await escalate(question);
         }
-        addMessage('assistant', response);
-        chatNote.textContent = '';
       } catch (e) {
         chatNote.textContent = 'Error: ' + e.message;
       }
       chatSendBtn.disabled = false;
       chatInput.disabled = false;
       chatInput.focus();
+    }
+
+    async function escalate(question) {
+      addSectionNote('Summary alone wasn\'t enough -- checking which sections might help…');
+      chatNote.textContent = 'Ranking sections…';
+      const flatList = flattenWithPaths(article.tree);
+      const rankResponse = await session.prompt(buildRankingPrompt(question, flatList));
+      const ranked = parseRankResponse(rankResponse, flatList);
+
+      let finalResponse;
+      if (ranked.length === 0) {
+        addSectionNote('No clear section match -- answering with what\'s available.');
+        finalResponse = await session.prompt('There\'s no specific section to point to for this. Please answer as best you can with what you already know: ' + question);
+      } else {
+        for (let i = 0; i < ranked.length; i++) {
+          const { node, path } = ranked[i];
+          const pathStr = path.join(' > ');
+          const isLast = i === ranked.length - 1;
+          addSectionNote('Checking "' + pathStr + '" (' + (i + 1) + '/' + ranked.length + ')…');
+          chatNote.textContent = 'Checking "' + pathStr + '"…';
+          const sectionBlock = 'Section path: ' + pathStr + '\n\n' + getSubtreeText(node);
+          const prompt = isLast
+            ? sectionBlock + '\n\nNow answer the original question as best you can using everything you\'ve seen so far: ' + question
+            : sectionBlock + '\n\nDoes this let you answer the original question ("' + question + '") satisfactorily?\nIf yes, respond with EXACTLY: ANSWER: <your answer>\nIf not, respond with EXACTLY: NEED_MORE_INFO (and nothing else).';
+          const stepResponse = await session.prompt(prompt);
+          if (isLast) { finalResponse = stepResponse; break; }
+          const ansMatch = stepResponse.match(/^ANSWER:\s*([\s\S]+)$/i);
+          finalResponse = ansMatch ? ansMatch[1].trim() : stepResponse;
+          if (ansMatch) break;
+        }
+      }
+      addMessage('assistant', finalResponse);
+      chatNote.textContent = '';
     }
 
     async function init() {
