@@ -3,6 +3,34 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- Security audit follow-up (2026-09-02): defense-in-depth given the
+     infobox renders real third-party HTML (fetchInfoboxHtml/renderInfobox),
+     even though that path already has its own sanitizer. Explicit allowlist
+     per resource type actually used on this page, not a permissive
+     fallback: en.wikipedia.org/www.wikidata.org (all fetch() calls),
+     cdn.jsdelivr.net (the pinned `marked` import), openstreetmap.org (the
+     map embed). `frame-ancestors`/`report-uri` are deliberately OMITTED,
+     not forgotten -- the CSP spec ignores both when delivered via a <meta>
+     tag rather than a real HTTP response header, and GitHub Pages' static
+     free tier can't set custom headers, so including them here would
+     silently do nothing while looking like real protection.
+     `script-src` and `style-src` both need 'unsafe-inline' -- this page's
+     whole app is one inline <script type="module"> and one inline <style>
+     block by deliberate house convention (zero build step, single self-
+     contained file, see this repo's root CLAUDE.md), and neither a nonce
+     (needs a server to mint per-request) nor a content hash (would have to
+     be recomputed by hand on every future edit to this exact script, a
+     silent-breakage trap for a file that's been edited ~15 times in one
+     session already) fits a purely static host. Be clear about what this
+     buys: it does NOT block an injected inline <script> or style attribute
+     from executing -- 'unsafe-inline' allows exactly that. What it DOES
+     block: loading a script/style from any origin not on the allowlist
+     above, any fetch()/XHR to a non-allowlisted origin (stops
+     exfiltration even if some other injection succeeded), embedding any
+     iframe not from openstreetmap.org, and <base>-tag/form-action
+     hijacking. Real, narrower value -- not "solves XSS," and documented
+     as such rather than overstated. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self' https://en.wikipedia.org https://www.wikidata.org; frame-src https://www.openstreetmap.org; object-src 'none'; base-uri 'self'; form-action 'self';">
 <title>pages-lab-ai — Wikipedia explorer (copilot)</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -489,6 +517,26 @@
           iframe.height = '180';
           iframe.style.border = '0';
           iframe.loading = 'lazy';
+          iframe.title = 'Map showing this article\'s location';
+          // Security audit follow-up (2026-09-02): had neither before.
+          // `sandbox` is a real restriction on a genuinely third-party
+          // origin (openstreetmap.org) -- `allow-scripts` because OSM's own
+          // embed needs to run its map-rendering JS to work at all,
+          // `allow-same-origin` so it can use ITS OWN cookies/storage under
+          // its real origin rather than a forced opaque one (the sandboxed-
+          // iframe-escape concern with combining these two only applies
+          // when the framed content shares origin with the parent page,
+          // which openstreetmap.org never does here), `allow-popups` so its
+          // own "View Larger Map" link still opens. Deliberately no
+          // `allow-top-navigation` -- nothing here needs OSM to be able to
+          // redirect this page's own tab. `referrerpolicy="no-referrer"`
+          // since nothing about this specific embed needs OSM to know
+          // which page linked to it (this page's own URL carries no
+          // per-article info today anyway, since ARTICLE_TITLE is a JS
+          // constant, not a URL param -- worth revisiting once page-choice
+          // makes the URL itself carry the title).
+          iframe.sandbox = 'allow-scripts allow-same-origin allow-popups';
+          iframe.referrerPolicy = 'no-referrer';
           cell.insertBefore(iframe, mapCaption);
         } else {
           const row = cell && cell.closest('tr');
