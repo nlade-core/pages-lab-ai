@@ -261,6 +261,13 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const data = await res.json();
       const page = Object.values(data.query.pages)[0];
+      // A nonexistent title is NOT an HTTP error -- confirmed live: the
+      // API returns a normal 200 with a `missing` marker and no `extract`
+      // field at all. Unreachable today (ARTICLE_TITLE is a fixed
+      // constant) but silently produced an empty, confusing "loaded but
+      // blank" article rather than a clear error -- relevant the moment
+      // article choice becomes user-driven.
+      if (page.missing !== undefined) throw new Error('no Wikipedia article found for "' + title + '"');
       const extract = page.extract || '';
       const { intro, tree } = parseArticleTree(extract);
       return { title: page.title, intro, tree };
@@ -598,6 +605,14 @@
 
       const facts = [];
       keptPids.forEach((pid) => {
+        // Every requested id has come back correctly in practice so far,
+        // but nothing actually guarantees it -- if a batch response ever
+        // silently omitted one, this would previously throw and (via the
+        // outer .catch at the call site) lose EVERY fact for that load,
+        // not just the one missing entry. Skipping just this pid is a
+        // strictly better failure mode: the rest of a mostly-good result
+        // still gets through.
+        if (!propEntities[pid]) return;
         const plabel = pickLabel(propEntities[pid].labels) || pid;
         const values = bestRankClaims(claims[pid] || []).map((c) => {
           const dv = c.mainsnak.datavalue && c.mainsnak.datavalue.value;
@@ -710,6 +725,14 @@
     // and only the specific subtree(s) it picks ever get their full text
     // injected. ---
     const RANK_COUNT = 3;
+    // Safety cap on the ranking prompt's own section list -- uncapped
+    // before, fine for a modest article like this demo's, but nothing
+    // stopped a much bigger/deeper real article (once article choice
+    // generalizes past one hand-picked demo) from producing an
+    // unreasonably large ranking prompt. A plain first-N cut, not a
+    // smarter pre-filter -- the model already does the real ranking work
+    // over whatever it's shown; this is just a bound, not a heuristic.
+    const MAX_RANKING_ENTRIES = 80;
 
     // `facts` (from fetchWikidataFacts) is always folded in here rather
     // than treated as its own escalation stage -- unlike a full section's
@@ -782,9 +805,14 @@
     }
 
     function buildRankingPrompt(question, flatList) {
-      const lines = flatList.map((f) => '- ' + f.path.join(' > ') + ' (~' + f.node.totalCharCount + ' chars)');
+      const truncated = flatList.length > MAX_RANKING_ENTRIES;
+      const shown = truncated ? flatList.slice(0, MAX_RANKING_ENTRIES) : flatList;
+      const lines = shown.map((f) => '- ' + f.path.join(' > ') + ' (~' + f.node.totalCharCount + ' chars)');
+      const truncationNote = truncated
+        ? '\n\n(Showing the first ' + MAX_RANKING_ENTRIES + ' of ' + flatList.length + ' total sections -- the rest were omitted to keep this list a reasonable size.)'
+        : '';
       return 'The summary wasn\'t enough to answer this question: "' + question + '"\n\n'
-        + 'Here are the article\'s sections, with a rough size in characters:\n' + lines.join('\n') + '\n\n'
+        + 'Here are the article\'s sections, with a rough size in characters:\n' + lines.join('\n') + truncationNote + '\n\n'
         + 'List up to ' + RANK_COUNT + ' sections most likely to contain the answer, in priority order, using their exact names from the list above (fewer than ' + RANK_COUNT + ' is fine if fewer seem relevant). Respond with EXACTLY this format and nothing else:\n'
         + 'RANK: <first choice> | <second choice> | <third choice>';
     }
