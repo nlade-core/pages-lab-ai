@@ -243,13 +243,41 @@
     function escapeHtml(s) {
       return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     }
+
+    // Security audit finding (2026-09-02): escaping-then-parsing only
+    // neutralizes raw HTML written INSIDE markdown source (confirmed:
+    // `<img src=x onerror=...>` in the model's text comes out as inert
+    // visible text). It does nothing for markdown's OWN link/image syntax
+    // -- `[text](url)` never contains a literal `<`, so escapeHtml never
+    // touches it, and `marked` (confirmed live against the exact pinned
+    // v18.0.11) does zero URL scheme validation by design (its own docs
+    // say sanitization is the caller's job). Reproduced directly:
+    // `[click](javascript:alert(document.cookie))` rendered as a real,
+    // clickable `<a href="javascript:...">` with no fix. The realistic
+    // trigger isn't a visitor typing this at themselves (self-XSS, low
+    // value) -- it's the system prompt, which includes raw Wikipedia
+    // article text; a prompt-injected/vandalized article could make the
+    // model emit such a link. Fixed by re-parsing marked's output into a
+    // detached document (same DOMParser-sanitize pattern already used for
+    // the infobox below) and stripping any href/src whose scheme isn't on
+    // an explicit allowlist -- an unsafe link loses its href entirely
+    // (renders as plain unlinked text) rather than being dropped outright,
+    // since the surrounding sentence is still real content worth keeping.
+    const SAFE_LINK_SCHEME = /^(https?:|mailto:)/i;
+    const SAFE_IMAGE_SCHEME = /^https?:/i;
+
     // Escape first, then Markdown-parse the escaped text -- markdown's own
     // syntax never uses &, <, or >, so this doesn't break formatting, and
     // any literal HTML in the model's raw output renders as inert visible
     // text instead of executable markup. Same pattern as chrome-ai's own
     // chat demo, not something to solve differently here.
     function renderMarkdown(text) {
-      return '<div class="md">' + marked.parse(escapeHtml(text)) + '</div>';
+      const raw = marked.parse(escapeHtml(text));
+      const doc = new DOMParser().parseFromString('<div class="md">' + raw + '</div>', 'text/html');
+      const root = doc.body.firstElementChild;
+      root.querySelectorAll('a[href]').forEach((a) => { if (!SAFE_LINK_SCHEME.test(a.getAttribute('href') || '')) a.removeAttribute('href'); });
+      root.querySelectorAll('img[src]').forEach((img) => { if (!SAFE_IMAGE_SCHEME.test(img.getAttribute('src') || '')) img.removeAttribute('src'); });
+      return root.outerHTML;
     }
 
     // --- Fetch + parse the article once. Plain-text extract, not HTML --
@@ -312,15 +340,50 @@
       // entirely by a selector scoped to `a[href]` -- confirms this needs
       // to be stripped outright (it serves no purpose on this page) not
       // just added to the link-fixing selector.
-      table.querySelectorAll('script, style, link, .mw-editsection, sup.reference, sup.noprint, .mw-kartographer-map, .mw-kartographer-maplink').forEach((el) => el.remove());
+      //
+      // Security audit finding (2026-09-02): this was a DENYLIST (strip a
+      // few known-bad tags/attributes), not an allowlist, and had two real
+      // gaps confirmed live with a synthetic fixture run through this
+      // exact code: `iframe`/`object`/`embed`/`form`/`video`/`audio`
+      // weren't denylisted at all, and no href/src was ever checked for a
+      // dangerous URL SCHEME (a `javascript:` href survived untouched and
+      // still got `target="_blank"` applied). Real Wikipedia content isn't
+      // known to contain either today -- MediaWiki's own Sanitizer already
+      // blocks these at the wikitext-to-HTML step -- so this page was
+      // fully inheriting that upstream guarantee with no backstop of its
+      // own. `iframe`/`object`/etc. added to the removal list (the
+      // OpenStreetMap map iframe added later in renderInfobox is created
+      // fresh by this page's own code, never from fetched markup, so
+      // stripping every iframe here doesn't touch it). Every href is now
+      // scheme-checked AFTER any relative-to-absolute rewrite; anything
+      // not `http(s):`/`mailto:` loses its href entirely rather than
+      // being trusted.
+      table.querySelectorAll('script, style, link, iframe, object, embed, form, video, audio, .mw-editsection, sup.reference, sup.noprint, .mw-kartographer-map, .mw-kartographer-maplink').forEach((el) => el.remove());
       table.querySelectorAll('*').forEach((el) => {
         [...el.attributes].forEach((attr) => { if (/^on/i.test(attr.name)) el.removeAttribute(attr.name); });
       });
+      // Security audit finding (2026-09-02): inline `style` attributes were
+      // passed through completely untouched. Confirmed live that a
+      // `style="background-image:url('https://evil.example/beacon.png')"`
+      // survives and would silently fire a network request purely by being
+      // rendered -- a real tracking/beacon vector. Fixed narrowly (strip
+      // only styles containing `url(`, which covers every CSS network-
+      // request property: background(-image), list-style-image,
+      // cursor, content) rather than stripping `style` wholesale --
+      // real infobox data uses inline `display:none`/`display:inline` for
+      // legitimate purposes (hiding a machine-readable date alongside the
+      // human-readable one, keeping a name inline instead of block-level),
+      // and a blanket strip would un-hide the former as a display
+      // regression for no security benefit, since `display:*` can't make a
+      // network request.
+      table.querySelectorAll('[style]').forEach((el) => { if (/url\s*\(/i.test(el.getAttribute('style'))) el.removeAttribute('style'); });
       table.querySelectorAll('a[href]').forEach((a) => {
         const href = a.getAttribute('href');
         if (href.startsWith('./')) a.setAttribute('href', 'https://en.wikipedia.org/wiki/' + href.slice(2));
         else if (href.startsWith('/wiki/')) a.setAttribute('href', 'https://en.wikipedia.org' + href);
         else if (href.startsWith('#')) { a.removeAttribute('href'); return; } // in-page anchor that won't exist here
+        const finalHref = a.getAttribute('href');
+        if (!/^(https?:|mailto:)/i.test(finalHref)) { a.removeAttribute('href'); return; } // dangerous/unknown scheme (e.g. javascript:) -- never trusted, whatever it claims to be
         a.setAttribute('target', '_blank');
         a.setAttribute('rel', 'noopener');
       });
