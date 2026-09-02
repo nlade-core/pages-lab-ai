@@ -430,8 +430,23 @@ CPU-only Python can't give it.
     surface, but blast radius is just "the model says something odd in that visitor's own chat" — no
     tool-use or page-mutation capability exists downstream); the pinned `marked` CDN import has no
     Subresource Integrity hash (ES module `import` can't carry SRI the way `<script src>` can — same
-    accepted trust model as every other page in this family, not unique to this one). Escaping itself was
-    checked and found consistent and correct everywhere it matters.
+    accepted trust model as every other page in this family, not unique to this one).
+  - **(2026-09-02 16:43 BST) A deeper follow-up audit found two real gaps the pass above missed — both now
+    fixed** (this corrects that pass's own conclusion that "escaping was checked and found correct
+    everywhere it matters"; it wasn't complete). **Fixed:** (1) `marked`'s markdown link/image syntax
+    (`[text](url)`) was never covered by the existing escape-then-parse defense — that only neutralizes raw
+    HTML written inside markdown source, not markdown's own link syntax, and `marked` does zero URL scheme
+    validation by design. Confirmed live: `[x](javascript:alert(document.cookie))` in an assistant reply
+    rendered as a real, clickable exploit link. `renderMarkdown` now strips href/src on anything not
+    `http(s):`/`mailto:`. (2) The infobox HTML sanitizer was a denylist, not an allowlist — confirmed live
+    with a synthetic fixture that a `javascript:` href, a CSS `background-image` beacon, and a bare
+    `<iframe>` all survived untouched. `iframe`/`object`/`embed`/`form`/`video`/`audio` added to the removal
+    list, every href now scheme-checked after rewriting, and `url(...)`-bearing inline styles stripped
+    (narrowly — not a blanket style strip, since real infobox data uses inline `display:none` legitimately).
+    Both fixes verified against the exact fixtures that found them, plus 2 new durable regression cases.
+    **Deferred, documented not fixed:** no CSP anywhere (meaningful defense-in-depth given the infobox
+    still injects real third-party HTML); the OpenStreetMap iframe has no `sandbox`/`referrerpolicy`; the two
+    already-accepted items directly above (prompt injection ceiling, no SRI on `marked`) stand as before.
   - The bigger, standing next step behind all of this: page-choice / multiple articles — the actual reason
     today's full retrieval + Wikidata-fact rebuild happened. The data model was deliberately kept free of
     hardcoded state specifically so this doesn't mean reworking the retrieval logic, just adding a way to
