@@ -251,7 +251,14 @@ CPU-only Python can't give it.
 - [Wikipedia explorer](https://nlade-core.github.io/pages-lab-ai/wiki-explore/) — a two-pane reading
   experience: the actual Wikipedia article (rendered from its own plain-text extract, not fetched a
   second time in a different format) on the left, a Gemini Nano copilot sidebar on the right, with a
-  draggable splitter between them (clamped to sane minimums, persisted per-visitor). The article is
+  draggable splitter between them (clamped to sane minimums, persisted per-visitor). A single Commons-
+  licensed lead image sits at the top of the article pane — ported from `chrome-chat`'s already-proven
+  `/wiki image` feature (same media-list fetch, same Commons-hosted licensing filter — not every image on
+  a Wikipedia page is freely licensed, some are local-per-wiki fair-use only), simplified here since this
+  page only ever displays the image rather than attaching it to a multimodal prompt, so no Blob/lifecycle
+  management is needed, just a plain `<img src>`. A visible attribution link back to the Commons file page
+  accompanies it; a missing or non-free image never blocks the article, it just means no image shows. The
+  article is
   parsed into a real parent/child tree, not a flat list with a level number bolted on — every node
   carries its own char count and a rolled-up total across its whole subtree, confirmed against the real
   live article to reach genuine 3-deep nesting (`Design > Floors > 1st floor`). The starter chat message
@@ -371,11 +378,6 @@ CPU-only Python can't give it.
   their correct section needs the full/mobile HTML endpoint, a structurally different data source than
   the plain-text extract this page's tree parser depends on — a real re-architecture for a nice-to-have,
   not a core need.
-- **wiki-explore: a single lead image** — the one image-related item actually worth doing. Different case
-  from full in-context photos: `chrome-chat`'s `/wiki image` already solved exactly this (media-list
-  endpoint, filtered to Commons-hosted for licensing safety, confirmed live against a real non-Commons
-  case). One hero image at the top of the article pane, reusing already-proven code, gets most of the
-  "this feels like a real article" benefit for a fraction of the cost of full illustration.
 - **wiki-explore: infobox data as its own feature** — moot, already solved differently: the Known Facts
   feature (Wikidata-sourced) already surfaces the infobox's actual content (height, architect, materials,
   coordinates); no separate infobox-scraping effort needed.
