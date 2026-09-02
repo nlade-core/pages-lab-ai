@@ -86,18 +86,22 @@
   .attribution { color: var(--muted); font-size: 0.78rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
   .attribution a { color: inherit; }
 
-  #lead-image { margin-bottom: 1.5rem; }
-  #lead-image img { width: 100%; max-height: 320px; object-fit: cover; border-radius: 8px; }
-  #lead-image figcaption { color: var(--muted); font-size: 0.78rem; margin-top: 0.4rem; }
-  #lead-image figcaption a { color: inherit; }
-
   /* Wikipedia's own infobox CSS isn't included in the raw HTML response
      (it comes from a separate site-wide stylesheet) -- these rules give
      the injected real infobox markup a reasonable look using this page's
      own theme tokens, targeting the actual class names Wikipedia's
      infobox templates emit (confirmed live, not guessed). Demo-quality,
      not pixel-perfect. */
-  #infobox-demo { margin-bottom: 1.5rem; max-width: 320px; }
+  /* Floated right with the intro's paragraphs wrapping beside it on the
+     left, matching real Wikipedia's own lead-section layout -- not a
+     fixed px width, since this pane's own splitter can be dragged down
+     to a narrow MIN_ARTICLE (320px total); a fixed-width float at that
+     size would leave zero room for wrapped text. min() lets it shrink
+     gracefully instead. Nothing forces an early `clear` on later
+     sections -- same as the real site, if the infobox is taller than the
+     intro, subsequent section text keeps wrapping until it's past the
+     float's bottom edge, then continues at full width "underneath" it. */
+  #infobox-demo { float: right; width: min(300px, 42%); margin: 0 0 1rem 1.25rem; }
   #infobox-demo table.infobox {
     width: 100%; border-collapse: collapse; font-size: 0.82rem;
     border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
@@ -173,6 +177,10 @@
     #app { grid-template-columns: 1fr !important; grid-template-rows: 1fr 45vh; height: 100vh; height: 100dvh; }
     #splitter { display: none; }
     #chat-pane { border-left: none; border-top: 1px solid var(--border); }
+    /* A narrow float leaves too little room for wrapped text to be
+       readable -- stack full-width above the intro instead, same as
+       real Wikipedia's own mobile view. */
+    #infobox-demo { float: none; width: auto; margin: 0 0 1.5rem; }
   }
 </style>
 </head>
@@ -183,13 +191,12 @@
         <h1 id="article-title">Loading…</h1>
         <p class="top-subnote">Wikipedia explorer — <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">pages-lab-ai</a>, 15th page. Rendered from Wikipedia's own plain-text extract; ask the sidebar copilot anything about it.</p>
       </div>
-      <figure id="lead-image" style="display:none;">
-        <img id="lead-image-img" alt="">
-        <figcaption id="lead-image-caption"></figcaption>
-      </figure>
       <!-- Demo only, per explicit scope: real infobox HTML injected here,
            nowhere else (not the system prompt, not the chat sidebar) --
-           see fetchInfoboxHtml/renderInfobox below. -->
+           see fetchInfoboxHtml/renderInfobox below. Floated right (CSS
+           above) with the intro's paragraphs wrapping beside it on the
+           left -- its own embedded image replaces the standalone lead
+           image this page used to fetch separately. -->
       <div id="infobox-demo" style="display:none;"></div>
       <div id="article-intro"></div>
       <div id="article-body"></div>
@@ -225,9 +232,6 @@
     const articleIntroEl = document.getElementById('article-intro');
     const articleBodyEl = document.getElementById('article-body');
     const attributionEl = document.getElementById('attribution');
-    const leadImageEl = document.getElementById('lead-image');
-    const leadImageImgEl = document.getElementById('lead-image-img');
-    const leadImageCaptionEl = document.getElementById('lead-image-caption');
     const infoboxDemoEl = document.getElementById('infobox-demo');
     const statusPill = document.getElementById('status-pill');
     const chatLog = document.getElementById('chat-log');
@@ -260,56 +264,6 @@
       const extract = page.extract || '';
       const { intro, tree } = parseArticleTree(extract);
       return { title: page.title, intro, tree };
-    }
-
-    // --- A single lead image, ported from chrome-chat's already-proven
-    // `/wiki image` feature rather than built fresh. Simplified for this
-    // page's actual need: chrome-chat fetches the image as a Blob because
-    // it attaches it to a multimodal model prompt; this page only ever
-    // displays it, so the media-list URL is used directly as an <img src>
-    // -- no blob fetch, no blob-URL lifecycle to manage.
-    //
-    // The licensing check is unchanged and just as load-bearing here:
-    // not every image on a Wikipedia page is freely licensed -- some are
-    // hosted locally per-wiki under a fair-use rationale (confirmed real
-    // via a non-Commons movie poster during chrome-chat's own build).
-    // Wikimedia Commons (the `/wikipedia/commons/` URL path) forbids
-    // fair-use-only hosting, so filtering to Commons-hosted images is a
-    // real, checkable guarantee of free licensing, not an assumption.
-    function isCommonsHosted(item) {
-      const src = item.srcset && item.srcset[0] && item.srcset[0].src;
-      return !!src && src.includes('/wikipedia/commons/');
-    }
-    async function fetchWikiLeadImage(title) {
-      const res = await fetch('https://en.wikipedia.org/api/rest_v1/page/media-list/' + encodeURIComponent(title.replace(/ /g, '_')));
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      const items = data.items || [];
-      const candidates = items.filter((it) => it.type === 'image' && isCommonsHosted(it));
-      const chosen = candidates.find((it) => it.leadImage) || candidates.find((it) => it.showInGallery);
-      const entry = chosen && chosen.srcset && chosen.srcset[0];
-      if (!entry) throw new Error('no freely-licensed (Commons) image found for this article');
-      // Always use the exact URL media-list hands back -- confirmed live
-      // (chrome-chat) that hand-constructing a different width returns a
-      // Wikimedia error page, not an image; only specific pre-rendered
-      // widths actually exist. The 2x entry (if present) is used as a
-      // srcset hint for sharper rendering on high-DPI displays.
-      const toAbsolute = (src) => (src.startsWith('//') ? 'https:' + src : src);
-      const entry2x = chosen.srcset[1];
-      const fileTitle = chosen.title.replace(/^File:/, '').replace(/_/g, ' ');
-      return {
-        imgUrl: toAbsolute(entry.src),
-        imgUrl2x: entry2x ? toAbsolute(entry2x.src) : null,
-        caption: fileTitle,
-        commonsUrl: 'https://commons.wikimedia.org/wiki/' + encodeURIComponent(chosen.title.replace(/ /g, '_')),
-      };
-    }
-    function renderLeadImage(img) {
-      leadImageImgEl.src = img.imgUrl;
-      leadImageImgEl.srcset = img.imgUrl2x ? img.imgUrl + ' 1x, ' + img.imgUrl2x + ' 2x' : '';
-      leadImageImgEl.alt = img.caption;
-      leadImageCaptionEl.innerHTML = escapeHtml(img.caption) + ' — <a href="' + img.commonsUrl + '" target="_blank" rel="noopener">via Wikimedia Commons</a>';
-      leadImageEl.style.display = '';
     }
 
     // --- DEMO ONLY, explicitly scoped to the page render alone -- not
@@ -994,16 +948,14 @@
         // load -- it's pure enrichment, not a requirement. Logged to the
         // console rather than shown to the visitor, same as any other
         // best-effort background enhancement.
-        const [articleResult, factsResult, imageResult, infoboxHtmlResult] = await Promise.all([
+        const [articleResult, factsResult, infoboxHtmlResult] = await Promise.all([
           fetchArticle(ARTICLE_TITLE),
           fetchWikidataFacts(ARTICLE_TITLE).catch((e) => { console.warn('Wikidata facts unavailable:', e.message); return []; }),
-          fetchWikiLeadImage(ARTICLE_TITLE).catch((e) => { console.warn('Lead image unavailable:', e.message); return null; }),
           fetchInfoboxHtml(ARTICLE_TITLE).catch((e) => { console.warn('Infobox demo unavailable:', e.message); return null; }),
         ]);
         article = articleResult;
         facts = factsResult;
         renderArticle(article);
-        if (imageResult) renderLeadImage(imageResult);
         if (infoboxHtmlResult) renderInfobox(infoboxHtmlResult);
         // Shown the moment the (fast) Wikipedia fetch is parsed -- doesn't
         // wait on the model, which can take much longer if it needs a
