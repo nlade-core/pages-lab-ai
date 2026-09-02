@@ -362,22 +362,39 @@
     //     / "Broadcasting tower"). Replaced with a real separator before
     //     reading text; `<li>` handled the same way for list-shaped cells.
     function extractInfoboxFacts(table) {
-      function cellText(el) {
+      // Returns { text, links } -- `text` is exactly what rendered before
+      // (no behavior change for any existing caller). `links` is new: the
+      // cell's own hyperlinks, read AFTER hidden-metadata stripping so a
+      // link buried in an invisible span never surfaces, but by this point
+      // in fetchInfoboxHtml every href has ALREADY been rewritten to an
+      // absolute https://en.wikipedia.org/wiki/... URL -- these are real,
+      // clickable pointers to other Wikipedia articles, not raw wikitext.
+      // A different KIND of link than formatWikidataValue's new `qid`
+      // field: that one points at a Wikidata item (structured, one hop
+      // from more claims); this one points at another Wikipedia ARTICLE
+      // (the same plain-text-extract pipeline this page already runs,
+      // one recursive fetch away). Filtered to non-empty visible text --
+      // an icon-only or otherwise textless link isn't useful to surface.
+      function cleanCell(el) {
         const clone = el.cloneNode(true);
         clone.querySelectorAll('[style]').forEach((node) => { if (node.style.display === 'none') node.remove(); });
+        const links = [...clone.querySelectorAll('a[href]')]
+          .map((a) => ({ text: a.textContent.replace(/\s+/g, ' ').trim(), href: a.getAttribute('href') }))
+          .filter((l) => l.text);
         clone.querySelectorAll('br').forEach((br) => br.replaceWith(document.createTextNode('; ')));
         clone.querySelectorAll('li').forEach((li) => li.append(document.createTextNode('; ')));
-        return clone.textContent.replace(/\s+/g, ' ').replace(/(;\s*)+$/, '').trim();
+        const text = clone.textContent.replace(/\s+/g, ' ').replace(/(;\s*)+$/, '').trim();
+        return { text, links };
       }
       const facts = [];
       table.querySelectorAll(':scope > tbody > tr, :scope > tr').forEach((tr) => {
         const label = tr.querySelector(':scope > th');
         const data = tr.querySelector(':scope > td');
         if (!label || !data) return;
-        const labelText = cellText(label);
-        const valueText = cellText(data);
-        if (!labelText || !valueText) return;
-        facts.push({ label: labelText, value: valueText });
+        const labelCell = cleanCell(label);
+        const dataCell = cleanCell(data);
+        if (!labelCell.text || !dataCell.text) return;
+        facts.push({ label: labelCell.text, value: dataCell.text, links: dataCell.links });
       });
       return facts;
     }
@@ -595,22 +612,32 @@
       return /^Q\d+$/.test(id);
     }
 
+    // Returns { text, qid } rather than a bare string -- `text` is exactly
+    // what rendered before (no behavior change for any existing caller),
+    // `qid` is new: the real Wikidata item id behind an item-valued fact
+    // (null for every other value shape), kept instead of discarded the
+    // moment its label is resolved. This is the one place in the whole
+    // extraction pipeline where a genuine, traversable graph edge exists --
+    // "architect" isn't just the string "Stephen Sauvestre", it's a pointer
+    // to Q778243, itself a full entity with its own claims one fetch away.
+    // Not wired into the prompt or UI yet; this just stops throwing the
+    // pointer away before anything gets a chance to use it.
     function formatWikidataValue(dv, valueEntities) {
       if (dv.id && isWikidataItemId(dv.id)) {
         const label = valueEntities[dv.id] && pickLabel(valueEntities[dv.id].labels);
-        return label || dv.id; // no label in any tried language -- show the raw id rather than hide the fact entirely
+        return { text: label || dv.id, qid: dv.id }; // no label in any tried language -- show the raw id rather than hide the fact entirely
       }
-      if (dv.id) return dv.id; // a non-item id (e.g. an EntitySchema reference) -- shown as-is, never sent for label resolution
+      if (dv.id) return { text: dv.id, qid: null }; // a non-item id (e.g. an EntitySchema reference) -- shown as-is, never sent for label resolution
       if (dv.amount !== undefined) { // quantity, e.g. height, floor count
         const amount = dv.amount.replace(/^\+/, '');
         const unitQid = realUnitQid(dv);
         const unitLabel = unitQid && valueEntities[unitQid] && pickLabel(valueEntities[unitQid].labels);
-        return unitLabel ? amount + ' ' + unitLabel : amount;
+        return { text: unitLabel ? amount + ' ' + unitLabel : amount, qid: null };
       }
-      if (dv.time) return dv.time.replace(/^\+/, '').split('T')[0]; // ISO date, precision ignored -- not currently surfaced (see the excluded inception/date properties above)
-      if (dv.text !== undefined) return dv.text; // monolingualtext, e.g. native label
-      if (dv.latitude !== undefined) return dv.latitude + ', ' + dv.longitude; // globe-coordinate
-      return String(dv);
+      if (dv.time) return { text: dv.time.replace(/^\+/, '').split('T')[0], qid: null }; // ISO date, precision ignored -- not currently surfaced (see the excluded inception/date properties above)
+      if (dv.text !== undefined) return { text: dv.text, qid: null }; // monolingualtext, e.g. native label
+      if (dv.latitude !== undefined) return { text: dv.latitude + ', ' + dv.longitude, qid: null }; // globe-coordinate
+      return { text: String(dv), qid: null };
     }
 
     // Some properties (e.g. a well-decorated person's "award received")
@@ -665,11 +692,25 @@
         // still gets through.
         if (!propEntities[pid]) return;
         const plabel = pickLabel(propEntities[pid].labels) || pid;
-        const values = bestRankClaims(claims[pid] || []).map((c) => {
+        const formatted = bestRankClaims(claims[pid] || []).map((c) => {
           const dv = c.mainsnak.datavalue && c.mainsnak.datavalue.value;
           return dv ? formatWikidataValue(dv, valueEntities) : null;
         }).filter(Boolean).slice(0, MAX_VALUES_PER_FACT);
-        if (values.length) facts.push({ label: plabel, value: values.join(', ') });
+        // `value` stays the same joined display string as before (every
+        // existing caller -- buildSystemPrompt, renderFactsList, tests --
+        // is unaffected). `qids` is new: the subset of this fact's values
+        // that were real Wikidata items, in the same order -- e.g.
+        // "Structural engineer: Maurice Koechlin, Émile Nouguier" carries
+        // BOTH their QIDs, not just one, since a single fact can have
+        // multiple item-valued claims. Empty for any fact with no
+        // item-valued claims at all (quantities, dates, coordinates...).
+        if (formatted.length) {
+          facts.push({
+            label: plabel,
+            value: formatted.map((f) => f.text).join(', '),
+            qids: formatted.map((f) => f.qid).filter(Boolean),
+          });
+        }
       });
       return { facts, coordinates: extractCoordinates(claims) };
     }
