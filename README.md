@@ -378,16 +378,25 @@ CPU-only Python can't give it.
   their correct section needs the full/mobile HTML endpoint, a structurally different data source than
   the plain-text extract this page's tree parser depends on — a real re-architecture for a nice-to-have,
   not a core need.
-- **wiki-explore: infobox data and a map — built since, as an explicit demo/spike, not yet a committed
-  feature.** The article pane now renders the real Wikipedia infobox (fetched from the full HTML endpoint,
-  sanitized, floated right with the intro's paragraphs wrapping beside it on the left — matching real
-  Wikipedia's own lead-section layout), including a genuine OpenStreetMap embed keyed off the article's
-  coordinate (read directly from Wikidata property `P625`) where one exists. Confirmed to generalize
-  across all 4 test articles, one real bug found and fixed along the way (a `<link>`-tag relative URL a
-  narrower selector had missed). Deliberately scoped to the page render only, per direct request — the
-  system prompt and chat sidebar are untouched. Full reasoning, the infobox/Wikidata coverage comparison
-  across topic types, and what's still undecided (whether to formalize this past spike status) are in
-  memory and this repo's own commit history, not repeated here.
+- **wiki-explore: infobox data and a map — shipped**, past spike status. The article pane renders the real
+  Wikipedia infobox (fetched from the full HTML endpoint, sanitized, floated right with the intro's
+  paragraphs wrapping beside it on the left — matching real Wikipedia's own lead-section layout), including
+  a genuine OpenStreetMap embed keyed off the article's coordinate (read directly from Wikidata property
+  `P625`) where one exists. Confirmed to generalize across all 4 test articles, one real bug found and fixed
+  along the way (a `<link>`-tag relative URL a narrower selector had missed).
+  - **The infobox is also folded into the system prompt now**, not just the float render — its own
+    label/value rows extracted as plain text and ordered Summary → Infobox → Known Facts → Sections, with an
+    explicit instruction to prefer the infobox's value over Known Facts when both cover the same fact. The
+    infobox is a human editor's own curated, already-disambiguated answer (one height, not the 3 competing
+    Wikidata claims behind different qualifiers found this session); Known Facts is broader but noisier —
+    ordering and precedence are there to cut the model's ambiguity, not to save tokens (both blocks are cheap
+    regardless of order). Text extraction itself caught two more real bugs testing Marie Curie's "Born"
+    cell: a hidden `style="display:none"` machine-readable date that `.textContent` doesn't respect, and
+    `<br>`-separated sub-lines collapsing with no separator at all — both fixed before shipping.
+  - What's still undecided: the graph-traversal angle (every Wikidata item-valued fact is itself a QID that
+    could be fetched a hop further for more claims — genuinely more "linked data" than the infobox's own
+    plain hyperlinks, which just point at other Wikipedia articles, not structured entities) is real and
+    unused, not built. Full reasoning is in memory and this repo's own commit history, not repeated here.
 - **wiki-explore: a security/quality pass**, done, nothing critical — full findings below, for the next
   session to act on rather than re-derive:
   - Two quick wins, already fully reasoned through: drop the "Summary" dropdown from the chat's starter
@@ -395,8 +404,9 @@ CPU-only Python can't give it.
     the three still-slipping-through Wikidata noise properties (`described by source`/`public domain
     date`/`offers view on`) individually to the blocklist, not via their shared class (which also contains
     genuinely useful facts like `author`/`publisher` for other topics).
-  - A single lead image is recommended and cheap to add — `chrome-chat`'s `/wiki image` already solved the
-    fetch + Commons-licensing-safety check; this would be a port, not new work.
+  - ~~A single lead image is recommended and cheap to add~~ — built (ported from `chrome-chat`'s `/wiki
+    image`), then removed once the infobox demo shipped its own embedded photo, making the standalone image
+    redundant. No longer a pending item.
   - Quality items — **fixed since**: `fetchArticle` now checks Wikipedia's `missing` marker and throws a
     clear error for a nonexistent title (confirmed live: a bad title returns a normal HTTP 200, not an
     error, so `res.ok` never caught this); `buildRankingPrompt` now caps its section list at 80 entries,
