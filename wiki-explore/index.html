@@ -191,12 +191,13 @@
         <h1 id="article-title">Loading…</h1>
         <p class="top-subnote">Wikipedia explorer — <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">pages-lab-ai</a>, 15th page. Rendered from Wikipedia's own plain-text extract; ask the sidebar copilot anything about it.</p>
       </div>
-      <!-- Demo only, per explicit scope: real infobox HTML injected here,
-           nowhere else (not the system prompt, not the chat sidebar) --
-           see fetchInfoboxHtml/renderInfobox below. Floated right (CSS
-           above) with the intro's paragraphs wrapping beside it on the
-           left -- its own embedded image replaces the standalone lead
-           image this page used to fetch separately. -->
+      <!-- Real infobox HTML injected here for the visual float render --
+           see fetchInfoboxHtml/renderInfobox below. The same fetch's
+           extracted text facts feed the system prompt (buildSystemPrompt),
+           not this element. Floated right (CSS above) with the intro's
+           paragraphs wrapping beside it on the left -- its own embedded
+           image replaces the standalone lead image this page used to
+           fetch separately. -->
       <div id="infobox-demo" style="display:none;"></div>
       <div id="article-intro"></div>
       <div id="article-body"></div>
@@ -273,16 +274,15 @@
       return { title: page.title, intro, tree };
     }
 
-    // --- DEMO ONLY, explicitly scoped to the page render alone -- not
-    // fed into the system prompt or the chat sidebar. Fetches the real
-    // rendered infobox table from the full HTML endpoint (NOT the plain-
-    // text extract everything else on this page uses) so the actual
-    // visual infobox can be seen before deciding whether/how to progress
-    // this past a spike. Confirmed live (this session's own research)
-    // that Wikidata alone can't reconstruct several infobox fields (e.g.
-    // a skyscraper's "preceded by/surpassed by" record-height relationship
-    // isn't a Wikidata claim at all for the Eiffel Tower) -- this is the
-    // only way to see that content at all.
+    // --- Fetches the real rendered infobox table from the full HTML
+    // endpoint (NOT the plain-text extract everything else on this page
+    // uses), both for the on-page float render AND (via extractInfoboxFacts
+    // below) as plain label/value facts for the system prompt. Confirmed
+    // live (this session's own research) that Wikidata alone can't
+    // reconstruct several infobox fields (e.g. a skyscraper's "preceded
+    // by/surpassed by" record-height relationship isn't a Wikidata claim
+    // at all for the Eiffel Tower) -- the infobox carries real content
+    // Known Facts doesn't have, not just a prettier rendering of it.
     //
     // Real HTML from Wikipedia gets real sanitization before injection,
     // not blind trust -- this is a materially bigger trust surface than
@@ -328,7 +328,58 @@
       table.querySelectorAll('img[srcset]').forEach((img) => {
         img.setAttribute('srcset', img.getAttribute('srcset').split(',').map((part) => part.trim().replace(/^\/\//, 'https://')).join(', '));
       });
-      return table.outerHTML;
+      return { html: table.outerHTML, facts: extractInfoboxFacts(table) };
+    }
+
+    // Extracts the infobox's own label/value rows as plain text for the
+    // system prompt -- separate from the sanitized HTML above, which is
+    // built for on-page display, not a text prompt. Only rows with BOTH a
+    // `th` (label) and a `td` (value) as direct children count as a fact --
+    // title/header/subheader rows are a lone spanning `th`, image/caption/
+    // full-data rows are a lone spanning `td`, so both fall out of this
+    // naturally without needing to filter by class. Scoped to `:scope >
+    // tbody > tr` (falling back to `:scope > tr` for a table with no
+    // `tbody`) specifically so a nested sub-table -- e.g. the interactive-
+    // map row's own markup -- doesn't get its rows double-counted; a plain
+    // `table.querySelectorAll('tr')` would reach into it.
+    //
+    // `cellText` is doing real work here, not just a whitespace trim --
+    // confirmed live against Marie Curie's actual "Born" cell:
+    // (1) Wikipedia hides a machine-readable ISO date alongside the human-
+    //     readable one via `style="display:none"` (e.g. a `<span
+    //     class="bday">` inside the visible date) -- invisible on the page,
+    //     but `.textContent` doesn't know that and pulls it in anyway,
+    //     producing "Maria Salomea Skłodowska(1867-11-07)7 November 1867…"
+    //     with a redundant bracketed date glued into the middle. Stripped
+    //     by checking each element's OWN inline `style.display` (reads the
+    //     `style` attribute directly, works fine on this detached
+    //     DOMParser document with no layout engine attached).
+    // (2) The same cell's `<br>` tags (separating name / date / birthplace
+    //     onto visual lines) collapse to nothing in `.textContent` --
+    //     "Skłodowska" and "7 November 1867" would otherwise run together
+    //     with no space at all. Same issue independently confirmed on
+    //     Eiffel Tower's "Type" cell (`<br>`-separated "Observation tower"
+    //     / "Broadcasting tower"). Replaced with a real separator before
+    //     reading text; `<li>` handled the same way for list-shaped cells.
+    function extractInfoboxFacts(table) {
+      function cellText(el) {
+        const clone = el.cloneNode(true);
+        clone.querySelectorAll('[style]').forEach((node) => { if (node.style.display === 'none') node.remove(); });
+        clone.querySelectorAll('br').forEach((br) => br.replaceWith(document.createTextNode('; ')));
+        clone.querySelectorAll('li').forEach((li) => li.append(document.createTextNode('; ')));
+        return clone.textContent.replace(/\s+/g, ' ').replace(/(;\s*)+$/, '').trim();
+      }
+      const facts = [];
+      table.querySelectorAll(':scope > tbody > tr, :scope > tr').forEach((tr) => {
+        const label = tr.querySelector(':scope > th');
+        const data = tr.querySelector(':scope > td');
+        if (!label || !data) return;
+        const labelText = cellText(label);
+        const valueText = cellText(data);
+        if (!labelText || !valueText) return;
+        facts.push({ label: labelText, value: valueText });
+      });
+      return facts;
     }
 
     // The real Kartographer widget (stripped above) needs Wikipedia's own
@@ -734,11 +785,24 @@
     // over whatever it's shown; this is just a bound, not a heuristic.
     const MAX_RANKING_ENTRIES = 80;
 
-    // `facts` (from fetchWikidataFacts) is always folded in here rather
-    // than treated as its own escalation stage -- unlike a full section's
-    // prose, a handful of curated structured facts is only a couple
-    // hundred tokens, negligible against Nano's ~9,216-token window, so
-    // there's no size problem to justify making the model ask for it.
+    // `facts` (from fetchWikidataFacts) and `infoboxFacts` (from
+    // fetchInfoboxHtml/extractInfoboxFacts) are always folded in here
+    // rather than treated as their own escalation stage -- unlike a full
+    // section's prose, a handful of curated structured facts is only a
+    // couple hundred tokens, negligible against Nano's ~9,216-token
+    // window, so there's no size problem to justify making the model ask
+    // for it.
+    //
+    // Ordering (Summary -> Infobox -> Known Facts -> Sections) and the
+    // explicit "prefer infobox" instruction below aren't about token cost
+    // -- both blocks are cheap regardless of order. They're about cutting
+    // ambiguity: the infobox is a human editor's own curated, already-
+    // disambiguated answer for the facts it covers (one height, not the
+    // 3 competing Wikidata claims behind different qualifiers found this
+    // session), while Known Facts is broader but noisier and unranked by
+    // relevance. Putting infobox first and telling the model to stop
+    // there when it already has the answer avoids it reading both and
+    // having to reconcile two numbers for the same fact.
     //
     // Section TITLES (not their content) are folded in too -- a real
     // reconsideration, not the original design: the earlier version kept
@@ -752,15 +816,20 @@
     // family already measured cheap elsewhere. The escalation mechanism
     // for pulling a section's real TEXT is unchanged -- this only adds
     // awareness of what exists, not the content itself.
-    function buildSystemPrompt(article, facts) {
+    function buildSystemPrompt(article, facts, infoboxFacts) {
+      const infoboxLines = (infoboxFacts && infoboxFacts.length)
+        ? '\n\nInfobox (the article\'s own curated quick-facts box -- if a fact appears here, use this value, not Known Facts below):\n'
+          + infoboxFacts.map((f) => '- ' + f.label + ': ' + f.value).join('\n')
+        : '';
       const factLines = (facts && facts.length)
-        ? '\n\nKnown facts:\n' + facts.map((f) => '- ' + f.label + ': ' + f.value).join('\n')
+        ? '\n\nKnown facts (broader, less curated -- use only for facts not already covered above):\n'
+          + facts.map((f) => '- ' + f.label + ': ' + f.value).join('\n')
         : '';
       const sectionLines = '\n\nSections in this article (titles only -- ask and I\'ll look one up if needed):\n'
         + flattenWithPaths(article.tree).map((f) => '- ' + f.path.join(' > ')).join('\n');
       return 'You are a helpful assistant answering questions about the Wikipedia article "' + article.title + '".\n\n'
-        + 'Summary:\n' + article.intro + factLines + sectionLines + '\n\n'
-        + 'Try to answer the user\'s question using the summary and known facts alone. If you can answer it confidently and directly, just answer normally.\n\n'
+        + 'Summary:\n' + article.intro + infoboxLines + factLines + sectionLines + '\n\n'
+        + 'Try to answer the user\'s question using the summary, infobox, and known facts alone. If you can answer it confidently and directly, just answer normally.\n\n'
         + 'If that genuinely isn\'t enough to answer well, respond with EXACTLY this and nothing else:\n'
         + 'NEED_MORE_INFO';
     }
@@ -1023,22 +1092,25 @@
 
     async function init() {
       let facts = [];
+      let infoboxFacts = [];
       try {
         // Wikidata enrichment runs alongside the article fetch (it only
         // needs the title, not the fetched article), but its own failure
         // is swallowed right here and never allowed to fail the article
         // load -- it's pure enrichment, not a requirement. Logged to the
         // console rather than shown to the visitor, same as any other
-        // best-effort background enhancement.
-        const [articleResult, factsResult, infoboxHtmlResult] = await Promise.all([
+        // best-effort background enhancement. Same treatment for the
+        // infobox now that it feeds the prompt, not just the float render.
+        const [articleResult, factsResult, infoboxResult] = await Promise.all([
           fetchArticle(ARTICLE_TITLE),
           fetchWikidataFacts(ARTICLE_TITLE).catch((e) => { console.warn('Wikidata facts unavailable:', e.message); return { facts: [], coordinates: null }; }),
-          fetchInfoboxHtml(ARTICLE_TITLE).catch((e) => { console.warn('Infobox demo unavailable:', e.message); return null; }),
+          fetchInfoboxHtml(ARTICLE_TITLE).catch((e) => { console.warn('Infobox unavailable:', e.message); return null; }),
         ]);
         article = articleResult;
         facts = factsResult.facts;
+        infoboxFacts = infoboxResult ? infoboxResult.facts : [];
         renderArticle(article);
-        if (infoboxHtmlResult) renderInfobox(infoboxHtmlResult, factsResult.coordinates);
+        if (infoboxResult) renderInfobox(infoboxResult.html, factsResult.coordinates);
         // Shown the moment the (fast) Wikipedia fetch is parsed -- doesn't
         // wait on the model, which can take much longer if it needs a
         // fresh download. The same summary/tree/facts still get fed to
@@ -1070,7 +1142,7 @@
 
         chatNote.textContent = 'Preparing the model…';
         session = await LanguageModel.create({
-          initialPrompts: [{ role: 'system', content: buildSystemPrompt(article, facts) }],
+          initialPrompts: [{ role: 'system', content: buildSystemPrompt(article, facts, infoboxFacts) }],
           monitor(m) {
             m.addEventListener('downloadprogress', (e) => {
               chatNote.textContent = 'Downloading model… ' + Math.round(e.loaded * 100) + '%';
