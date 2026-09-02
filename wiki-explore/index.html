@@ -357,6 +357,19 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       const html = await res.text();
       const doc = new DOMParser().parseFromString(html, 'text/html');
+      // Parsoid's REST HTML response carries its own <base href="//en.
+      // wikipedia.org/..."> tag (standard practice, makes ITS internal
+      // relative links resolve) -- confirmed live only once this page had
+      // a real CSP (`base-uri 'self'`): Chrome reports a genuine violation
+      // the moment DOMParser parses it, even into this detached document.
+      // Harmless either way -- nothing here ever relies on this document's
+      // own base-URL resolution, every rewrite below reads/writes via
+      // getAttribute/setAttribute with manual string concatenation, never
+      // the .href/.src IDL properties base URI would affect -- but an
+      // unexplained recurring violation in production console logs is bad
+      // hygiene regardless (could mask a real one later), so it's stripped
+      // outright rather than just tolerated.
+      doc.querySelector('base')?.remove();
       const table = doc.querySelector('table.infobox');
       if (!table) throw new Error('no infobox found for this article');
 
