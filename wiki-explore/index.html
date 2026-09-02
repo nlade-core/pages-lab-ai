@@ -91,6 +91,33 @@
   #lead-image figcaption { color: var(--muted); font-size: 0.78rem; margin-top: 0.4rem; }
   #lead-image figcaption a { color: inherit; }
 
+  /* Wikipedia's own infobox CSS isn't included in the raw HTML response
+     (it comes from a separate site-wide stylesheet) -- these rules give
+     the injected real infobox markup a reasonable look using this page's
+     own theme tokens, targeting the actual class names Wikipedia's
+     infobox templates emit (confirmed live, not guessed). Demo-quality,
+     not pixel-perfect. */
+  #infobox-demo { margin-bottom: 1.5rem; max-width: 320px; }
+  #infobox-demo table.infobox {
+    width: 100%; border-collapse: collapse; font-size: 0.82rem;
+    border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+  }
+  #infobox-demo .infobox-above, #infobox-demo .infobox-title {
+    background: var(--panel); font-weight: 700; font-size: 0.95rem;
+    text-align: center; padding: 0.5rem;
+  }
+  #infobox-demo .infobox-header, #infobox-demo .infobox-subheader {
+    background: var(--panel); font-weight: 600; text-align: center; padding: 0.4rem;
+  }
+  #infobox-demo .infobox-image { text-align: center; padding: 0.5rem; }
+  #infobox-demo .infobox-image img { max-width: 100%; height: auto; margin: 0 auto; }
+  #infobox-demo .infobox-caption { text-align: center; color: var(--muted); font-size: 0.75rem; padding: 0.2rem 0.5rem 0.5rem; }
+  #infobox-demo .infobox-label { color: var(--muted); padding: 0.3rem 0.5rem; vertical-align: top; width: 40%; border-top: 1px solid var(--border); }
+  #infobox-demo .infobox-data, #infobox-demo .infobox-full-data { padding: 0.3rem 0.5rem; vertical-align: top; border-top: 1px solid var(--border); }
+  #infobox-demo .infobox-full-data { text-align: center; }
+  #infobox-demo a { color: var(--accent); }
+  #infobox-demo table { max-width: 100%; }
+
   #article-body h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
   #article-body h3 { font-size: 1.05rem; margin: 1.2rem 0 0.4rem; }
   #article-body h4 { font-size: 0.95rem; margin: 1rem 0 0.35rem; color: var(--muted); }
@@ -160,6 +187,10 @@
         <img id="lead-image-img" alt="">
         <figcaption id="lead-image-caption"></figcaption>
       </figure>
+      <!-- Demo only, per explicit scope: real infobox HTML injected here,
+           nowhere else (not the system prompt, not the chat sidebar) --
+           see fetchInfoboxHtml/renderInfobox below. -->
+      <div id="infobox-demo" style="display:none;"></div>
       <div id="article-intro"></div>
       <div id="article-body"></div>
       <p class="attribution" id="attribution" style="display:none;"></p>
@@ -197,6 +228,7 @@
     const leadImageEl = document.getElementById('lead-image');
     const leadImageImgEl = document.getElementById('lead-image-img');
     const leadImageCaptionEl = document.getElementById('lead-image-caption');
+    const infoboxDemoEl = document.getElementById('infobox-demo');
     const statusPill = document.getElementById('status-pill');
     const chatLog = document.getElementById('chat-log');
     const chatInput = document.getElementById('chat-input');
@@ -278,6 +310,60 @@
       leadImageImgEl.alt = img.caption;
       leadImageCaptionEl.innerHTML = escapeHtml(img.caption) + ' — <a href="' + img.commonsUrl + '" target="_blank" rel="noopener">via Wikimedia Commons</a>';
       leadImageEl.style.display = '';
+    }
+
+    // --- DEMO ONLY, explicitly scoped to the page render alone -- not
+    // fed into the system prompt or the chat sidebar. Fetches the real
+    // rendered infobox table from the full HTML endpoint (NOT the plain-
+    // text extract everything else on this page uses) so the actual
+    // visual infobox can be seen before deciding whether/how to progress
+    // this past a spike. Confirmed live (this session's own research)
+    // that Wikidata alone can't reconstruct several infobox fields (e.g.
+    // a skyscraper's "preceded by/surpassed by" record-height relationship
+    // isn't a Wikidata claim at all for the Eiffel Tower) -- this is the
+    // only way to see that content at all.
+    //
+    // Real HTML from Wikipedia gets real sanitization before injection,
+    // not blind trust -- this is a materially bigger trust surface than
+    // the plain-text extract the rest of this page escapes and renders
+    // itself: script/style elements, edit-section buttons, and footnote
+    // superscripts (whose anchors don't exist on this page) are stripped;
+    // every element's inline event-handler attributes are removed; and
+    // relative links/protocol-relative images are rewritten to absolute
+    // URLs so they still work from here. The interactive map widget
+    // (`.mw-kartographer-map`) is also stripped -- it needs Wikipedia's
+    // own mapping JS/service to render and would just show broken
+    // without it, confirmed by inspecting the real markup before
+    // deciding to strip it rather than leaving it in to fail silently.
+    async function fetchInfoboxHtml(title) {
+      const res = await fetch('https://en.wikipedia.org/api/rest_v1/page/html/' + encodeURIComponent(title.replace(/ /g, '_')));
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const html = await res.text();
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const table = doc.querySelector('table.infobox');
+      if (!table) throw new Error('no infobox found for this article');
+
+      table.querySelectorAll('script, style, .mw-editsection, sup.reference, sup.noprint, .mw-kartographer-map, .mw-kartographer-maplink').forEach((el) => el.remove());
+      table.querySelectorAll('*').forEach((el) => {
+        [...el.attributes].forEach((attr) => { if (/^on/i.test(attr.name)) el.removeAttribute(attr.name); });
+      });
+      table.querySelectorAll('a[href]').forEach((a) => {
+        const href = a.getAttribute('href');
+        if (href.startsWith('./')) a.setAttribute('href', 'https://en.wikipedia.org/wiki/' + href.slice(2));
+        else if (href.startsWith('/wiki/')) a.setAttribute('href', 'https://en.wikipedia.org' + href);
+        else if (href.startsWith('#')) { a.removeAttribute('href'); return; } // in-page anchor that won't exist here
+        a.setAttribute('target', '_blank');
+        a.setAttribute('rel', 'noopener');
+      });
+      table.querySelectorAll('img[src^="//"]').forEach((img) => { img.setAttribute('src', 'https:' + img.getAttribute('src')); });
+      table.querySelectorAll('img[srcset]').forEach((img) => {
+        img.setAttribute('srcset', img.getAttribute('srcset').split(',').map((part) => part.trim().replace(/^\/\//, 'https://')).join(', '));
+      });
+      return table.outerHTML;
+    }
+    function renderInfobox(html) {
+      infoboxDemoEl.innerHTML = html;
+      infoboxDemoEl.style.display = '';
     }
 
     // --- Companion structured facts from Wikidata, entirely optional and
@@ -908,15 +994,17 @@
         // load -- it's pure enrichment, not a requirement. Logged to the
         // console rather than shown to the visitor, same as any other
         // best-effort background enhancement.
-        const [articleResult, factsResult, imageResult] = await Promise.all([
+        const [articleResult, factsResult, imageResult, infoboxHtmlResult] = await Promise.all([
           fetchArticle(ARTICLE_TITLE),
           fetchWikidataFacts(ARTICLE_TITLE).catch((e) => { console.warn('Wikidata facts unavailable:', e.message); return []; }),
           fetchWikiLeadImage(ARTICLE_TITLE).catch((e) => { console.warn('Lead image unavailable:', e.message); return null; }),
+          fetchInfoboxHtml(ARTICLE_TITLE).catch((e) => { console.warn('Infobox demo unavailable:', e.message); return null; }),
         ]);
         article = articleResult;
         facts = factsResult;
         renderArticle(article);
         if (imageResult) renderLeadImage(imageResult);
+        if (infoboxHtmlResult) renderInfobox(infoboxHtmlResult);
         // Shown the moment the (fast) Wikipedia fetch is parsed -- doesn't
         // wait on the model, which can take much longer if it needs a
         // fresh download. The same summary/tree/facts still get fed to
