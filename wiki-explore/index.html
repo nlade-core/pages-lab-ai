@@ -86,6 +86,11 @@
   .attribution { color: var(--muted); font-size: 0.78rem; margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); }
   .attribution a { color: inherit; }
 
+  #lead-image { margin-bottom: 1.5rem; }
+  #lead-image img { width: 100%; max-height: 320px; object-fit: cover; border-radius: 8px; }
+  #lead-image figcaption { color: var(--muted); font-size: 0.78rem; margin-top: 0.4rem; }
+  #lead-image figcaption a { color: inherit; }
+
   #article-body h2 { font-size: 1.2rem; margin: 1.5rem 0 0.5rem; }
   #article-body h3 { font-size: 1.05rem; margin: 1.2rem 0 0.4rem; }
   #article-body h4 { font-size: 0.95rem; margin: 1rem 0 0.35rem; color: var(--muted); }
@@ -151,6 +156,10 @@
         <h1 id="article-title">Loading…</h1>
         <p class="top-subnote">Wikipedia explorer — <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">pages-lab-ai</a>, 15th page. Rendered from Wikipedia's own plain-text extract; ask the sidebar copilot anything about it.</p>
       </div>
+      <figure id="lead-image" style="display:none;">
+        <img id="lead-image-img" alt="">
+        <figcaption id="lead-image-caption"></figcaption>
+      </figure>
       <div id="article-intro"></div>
       <div id="article-body"></div>
       <p class="attribution" id="attribution" style="display:none;"></p>
@@ -185,6 +194,9 @@
     const articleIntroEl = document.getElementById('article-intro');
     const articleBodyEl = document.getElementById('article-body');
     const attributionEl = document.getElementById('attribution');
+    const leadImageEl = document.getElementById('lead-image');
+    const leadImageImgEl = document.getElementById('lead-image-img');
+    const leadImageCaptionEl = document.getElementById('lead-image-caption');
     const statusPill = document.getElementById('status-pill');
     const chatLog = document.getElementById('chat-log');
     const chatInput = document.getElementById('chat-input');
@@ -216,6 +228,56 @@
       const extract = page.extract || '';
       const { intro, tree } = parseArticleTree(extract);
       return { title: page.title, intro, tree };
+    }
+
+    // --- A single lead image, ported from chrome-chat's already-proven
+    // `/wiki image` feature rather than built fresh. Simplified for this
+    // page's actual need: chrome-chat fetches the image as a Blob because
+    // it attaches it to a multimodal model prompt; this page only ever
+    // displays it, so the media-list URL is used directly as an <img src>
+    // -- no blob fetch, no blob-URL lifecycle to manage.
+    //
+    // The licensing check is unchanged and just as load-bearing here:
+    // not every image on a Wikipedia page is freely licensed -- some are
+    // hosted locally per-wiki under a fair-use rationale (confirmed real
+    // via a non-Commons movie poster during chrome-chat's own build).
+    // Wikimedia Commons (the `/wikipedia/commons/` URL path) forbids
+    // fair-use-only hosting, so filtering to Commons-hosted images is a
+    // real, checkable guarantee of free licensing, not an assumption.
+    function isCommonsHosted(item) {
+      const src = item.srcset && item.srcset[0] && item.srcset[0].src;
+      return !!src && src.includes('/wikipedia/commons/');
+    }
+    async function fetchWikiLeadImage(title) {
+      const res = await fetch('https://en.wikipedia.org/api/rest_v1/page/media-list/' + encodeURIComponent(title.replace(/ /g, '_')));
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const data = await res.json();
+      const items = data.items || [];
+      const candidates = items.filter((it) => it.type === 'image' && isCommonsHosted(it));
+      const chosen = candidates.find((it) => it.leadImage) || candidates.find((it) => it.showInGallery);
+      const entry = chosen && chosen.srcset && chosen.srcset[0];
+      if (!entry) throw new Error('no freely-licensed (Commons) image found for this article');
+      // Always use the exact URL media-list hands back -- confirmed live
+      // (chrome-chat) that hand-constructing a different width returns a
+      // Wikimedia error page, not an image; only specific pre-rendered
+      // widths actually exist. The 2x entry (if present) is used as a
+      // srcset hint for sharper rendering on high-DPI displays.
+      const toAbsolute = (src) => (src.startsWith('//') ? 'https:' + src : src);
+      const entry2x = chosen.srcset[1];
+      const fileTitle = chosen.title.replace(/^File:/, '').replace(/_/g, ' ');
+      return {
+        imgUrl: toAbsolute(entry.src),
+        imgUrl2x: entry2x ? toAbsolute(entry2x.src) : null,
+        caption: fileTitle,
+        commonsUrl: 'https://commons.wikimedia.org/wiki/' + encodeURIComponent(chosen.title.replace(/ /g, '_')),
+      };
+    }
+    function renderLeadImage(img) {
+      leadImageImgEl.src = img.imgUrl;
+      leadImageImgEl.srcset = img.imgUrl2x ? img.imgUrl + ' 1x, ' + img.imgUrl2x + ' 2x' : '';
+      leadImageImgEl.alt = img.caption;
+      leadImageCaptionEl.innerHTML = escapeHtml(img.caption) + ' — <a href="' + img.commonsUrl + '" target="_blank" rel="noopener">via Wikimedia Commons</a>';
+      leadImageEl.style.display = '';
     }
 
     // --- Companion structured facts from Wikidata, entirely optional and
@@ -846,13 +908,15 @@
         // load -- it's pure enrichment, not a requirement. Logged to the
         // console rather than shown to the visitor, same as any other
         // best-effort background enhancement.
-        const [articleResult, factsResult] = await Promise.all([
+        const [articleResult, factsResult, imageResult] = await Promise.all([
           fetchArticle(ARTICLE_TITLE),
           fetchWikidataFacts(ARTICLE_TITLE).catch((e) => { console.warn('Wikidata facts unavailable:', e.message); return []; }),
+          fetchWikiLeadImage(ARTICLE_TITLE).catch((e) => { console.warn('Lead image unavailable:', e.message); return null; }),
         ]);
         article = articleResult;
         facts = factsResult;
         renderArticle(article);
+        if (imageResult) renderLeadImage(imageResult);
         // Shown the moment the (fast) Wikipedia fetch is parsed -- doesn't
         // wait on the model, which can take much longer if it needs a
         // fresh download. The same summary/tree/facts still get fed to
