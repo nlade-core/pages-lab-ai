@@ -297,7 +297,15 @@
       const table = doc.querySelector('table.infobox');
       if (!table) throw new Error('no infobox found for this article');
 
-      table.querySelectorAll('script, style, .mw-editsection, sup.reference, sup.noprint, .mw-kartographer-map, .mw-kartographer-maplink').forEach((el) => el.remove());
+      // `link` is included here (not just stripped of its href) -- caught
+      // testing against Marie Curie's real infobox, which Eiffel Tower's
+      // didn't happen to exercise: Parsoid embeds category metadata as
+      // `<link rel="mw:PageProp/Category" href="./Category:...">`, a
+      // `<link>` tag, not an `<a>` tag, invisible either way but missed
+      // entirely by a selector scoped to `a[href]` -- confirms this needs
+      // to be stripped outright (it serves no purpose on this page) not
+      // just added to the link-fixing selector.
+      table.querySelectorAll('script, style, link, .mw-editsection, sup.reference, sup.noprint, .mw-kartographer-map, .mw-kartographer-maplink').forEach((el) => el.remove());
       table.querySelectorAll('*').forEach((el) => {
         [...el.attributes].forEach((attr) => { if (/^on/i.test(attr.name)) el.removeAttribute(attr.name); });
       });
@@ -315,8 +323,40 @@
       });
       return table.outerHTML;
     }
-    function renderInfobox(html) {
+
+    // The real Kartographer widget (stripped above) needs Wikipedia's own
+    // mapping JS/service and can't be reproduced outside it -- but its
+    // caption (`.infobox-caption`, "Interactive map of X area") is left
+    // behind as an orphan once the widget itself is gone. Rather than try
+    // to resurrect Wikipedia's actual widget (not portable), this swaps
+    // in a genuinely generic replacement: a plain OpenStreetMap iframe
+    // embed (their own public, no-API-key "export as HTML" feature) keyed
+    // off the SAME coordinate value already surfaced in Known Facts
+    // (Wikidata property P625, checked directly rather than parsed back
+    // out of formatted display text). Works for any article that has a
+    // coordinate -- confirmed only Eiffel Tower does among the 4 test
+    // articles -- and degrades safely (the orphaned caption/row is
+    // removed outright, not left dangling) for the many that don't.
+    function renderInfobox(html, coordinates) {
       infoboxDemoEl.innerHTML = html;
+      const mapCaption = [...infoboxDemoEl.querySelectorAll('.infobox-caption')].find((el) => /interactive map/i.test(el.textContent));
+      if (mapCaption) {
+        const cell = mapCaption.closest('td');
+        if (coordinates && cell) {
+          const delta = 0.01;
+          const bbox = [coordinates.lon - delta, coordinates.lat - delta, coordinates.lon + delta, coordinates.lat + delta].join('%2C');
+          const iframe = document.createElement('iframe');
+          iframe.src = 'https://www.openstreetmap.org/export/embed.html?bbox=' + bbox + '&marker=' + coordinates.lat + '%2C' + coordinates.lon;
+          iframe.width = '100%';
+          iframe.height = '180';
+          iframe.style.border = '0';
+          iframe.loading = 'lazy';
+          cell.insertBefore(iframe, mapCaption);
+        } else {
+          const row = cell && cell.closest('tr');
+          (row || cell || mapCaption).remove();
+        }
+      }
       infoboxDemoEl.style.display = '';
     }
 
@@ -565,7 +605,21 @@
         }).filter(Boolean).slice(0, MAX_VALUES_PER_FACT);
         if (values.length) facts.push({ label: plabel, value: values.join(', ') });
       });
-      return facts;
+      return { facts, coordinates: extractCoordinates(claims) };
+    }
+
+    // P625 ("coordinate location") is a stable, well-known global Wikidata
+    // property id -- checked directly here regardless of the noise-
+    // filtering logic above (coordinates are never noise, on any topic),
+    // rather than parsed back out of the already-formatted display string
+    // Known Facts shows. Returns raw {lat, lon} for the map embed to use,
+    // or null for the many articles that don't have one (confirmed: only
+    // Eiffel Tower does among the 4 test articles).
+    function extractCoordinates(claims) {
+      const best = bestRankClaims(claims.P625 || [])[0];
+      const dv = best && best.mainsnak.datavalue && best.mainsnak.datavalue.value;
+      if (!dv || dv.latitude === undefined) return null;
+      return { lat: dv.latitude, lon: dv.longitude };
     }
 
     // --- A real parent/child tree, not a flat list with a level number
@@ -950,13 +1004,13 @@
         // best-effort background enhancement.
         const [articleResult, factsResult, infoboxHtmlResult] = await Promise.all([
           fetchArticle(ARTICLE_TITLE),
-          fetchWikidataFacts(ARTICLE_TITLE).catch((e) => { console.warn('Wikidata facts unavailable:', e.message); return []; }),
+          fetchWikidataFacts(ARTICLE_TITLE).catch((e) => { console.warn('Wikidata facts unavailable:', e.message); return { facts: [], coordinates: null }; }),
           fetchInfoboxHtml(ARTICLE_TITLE).catch((e) => { console.warn('Infobox demo unavailable:', e.message); return null; }),
         ]);
         article = articleResult;
-        facts = factsResult;
+        facts = factsResult.facts;
         renderArticle(article);
-        if (infoboxHtmlResult) renderInfobox(infoboxHtmlResult);
+        if (infoboxHtmlResult) renderInfobox(infoboxHtmlResult, factsResult.coordinates);
         // Shown the moment the (fast) Wikipedia fetch is parsed -- doesn't
         // wait on the model, which can take much longer if it needs a
         // fresh download. The same summary/tree/facts still get fed to
