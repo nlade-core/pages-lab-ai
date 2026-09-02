@@ -384,15 +384,19 @@ CPU-only Python can't give it.
   a genuine OpenStreetMap embed keyed off the article's coordinate (read directly from Wikidata property
   `P625`) where one exists. Confirmed to generalize across all 4 test articles, one real bug found and fixed
   along the way (a `<link>`-tag relative URL a narrower selector had missed).
-  - **The infobox is also folded into the system prompt now**, not just the float render — its own
-    label/value rows extracted as plain text and ordered Summary → Infobox → Known Facts → Sections, with an
-    explicit instruction to prefer the infobox's value over Known Facts when both cover the same fact. The
-    infobox is a human editor's own curated, already-disambiguated answer (one height, not the 3 competing
-    Wikidata claims behind different qualifiers found this session); Known Facts is broader but noisier —
-    ordering and precedence are there to cut the model's ambiguity, not to save tokens (both blocks are cheap
-    regardless of order). Text extraction itself caught two more real bugs testing Marie Curie's "Born"
-    cell: a hidden `style="display:none"` machine-readable date that `.textContent` doesn't respect, and
-    `<br>`-separated sub-lines collapsing with no separator at all — both fixed before shipping.
+  - **(2026-09-02 16:14 BST) The infobox is also folded into the system prompt now**, not just the float
+    render — its own label/value rows extracted as plain text and ordered Summary → Infobox → Known Facts →
+    Sections, with an explicit instruction to prefer the infobox's value over Known Facts when both cover the
+    same fact. The infobox is a human editor's own curated, already-disambiguated answer (one height, not the
+    3 competing Wikidata claims behind different qualifiers found this session); Known Facts is broader but
+    noisier — ordering and precedence are there to cut the model's ambiguity, not to save tokens (both blocks
+    are cheap regardless of order). Text extraction itself caught two more real bugs testing Marie Curie's
+    "Born" cell: a hidden `style="display:none"` machine-readable date that `.textContent` doesn't respect,
+    and `<br>`-separated sub-lines collapsing with no separator at all — both fixed before shipping.
+  - **(2026-09-02 16:32 BST) The infobox now also shows up in the starter message**, matching Known Facts'
+    existing dropdown pattern — the previous entry above put it in the model's own prompt but left the visible
+    "what I know" list in the chat box out of sync with what the model actually had. Same order as the
+    prompt: Summary → Infobox → Known Facts → Sections, best-effort (no empty dropdown if the fetch failed).
   - What's still undecided: the graph-traversal angle (every Wikidata item-valued fact is itself a QID that
     could be fetched a hop further for more claims — genuinely more "linked data" than the infobox's own
     plain hyperlinks, which just point at other Wikipedia articles, not structured entities) is real and
