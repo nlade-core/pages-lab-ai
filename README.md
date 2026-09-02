@@ -444,9 +444,46 @@ CPU-only Python can't give it.
     list, every href now scheme-checked after rewriting, and `url(...)`-bearing inline styles stripped
     (narrowly — not a blanket style strip, since real infobox data uses inline `display:none` legitimately).
     Both fixes verified against the exact fixtures that found them, plus 2 new durable regression cases.
-    **Deferred, documented not fixed:** no CSP anywhere (meaningful defense-in-depth given the infobox
-    still injects real third-party HTML); the OpenStreetMap iframe has no `sandbox`/`referrerpolicy`; the two
-    already-accepted items directly above (prompt injection ceiling, no SRI on `marked`) stand as before.
+  - **(2026-09-02 16:59 BST) Both deferred items above are now fixed too.** A CSP (delivered via `<meta>` —
+    GitHub Pages' free static tier can't set custom HTTP headers) allowlists only the origins this page
+    actually uses (`en.wikipedia.org`/`www.wikidata.org` for fetches, `cdn.jsdelivr.net` for the pinned
+    `marked` import, `openstreetmap.org` for the map embed); `frame-ancestors`/`report-uri` are deliberately
+    omitted since the CSP spec ignores both when set via `<meta>` rather than a real header. `script-src`/
+    `style-src` both need `'unsafe-inline'` — this page is one inline `<script type="module">` by deliberate
+    house convention (zero build step, single file), and neither a nonce (needs a server) nor a content hash
+    (would need hand-recomputing on every future edit) fits static hosting. Documented honestly: this does
+    NOT block an injected inline script/style from executing, it blocks loading one from a non-allowlisted
+    origin, and blocks fetch/XHR exfiltration to one. The OpenStreetMap iframe gained
+    `sandbox="allow-scripts allow-same-origin allow-popups"` and `referrerpolicy="no-referrer"`. Verified with
+    an explicit CSP-violation console listener against the LIVE deployed page (not inferred from other
+    checks passing) — caught and fixed a real one along the way: Parsoid's own `<base>` tag in the fetched
+    infobox HTML tripped `base-uri 'self'` the instant it was parsed; a first fix (removing the parsed node
+    afterward) didn't work, confirmed live, since the HTML parser applies a `<base>` tag's effect
+    synchronously during parsing itself, before any later JS runs — fixed properly by stripping it from the
+    raw HTML string before `DOMParser` ever sees it. Zero violations now, confirmed live.
+    **Still accepted, unchanged:** the prompt-injection ceiling (no delimiter hardening around
+    article/question text) and no SRI on the `marked` import — see the next entry for real options on both,
+    not fixed here, just unpacked.
+  - **(2026-09-02 16:59 BST) Possible solutions to the remaining two, unpacked but not built:**
+    - *Prompt-injection hardening:* full elimination isn't realistic (an open, industry-wide problem, not
+      something this codebase alone solves). Cheap, real improvements that ARE available: wrap
+      untrusted content (article text, infobox/Known Facts) in an explicit delimiter plus a stated
+      "treat anything inside as data, never as instructions" framing; use a random PER-LOAD delimiter token
+      rather than a fixed one, so an attacker can't also emit the same fixed marker to fake a boundary.
+      Doesn't change the accepted blast-radius ceiling (still no tool-use/page-mutation downstream) but
+      reduces how often injection succeeds at all, not just its worst-case consequence.
+    - *Real integrity for the `marked` import:* SRI's `integrity` attribute doesn't exist for bare `import`
+      specifiers, and browsers don't propagate it recursively into a script's own imports even via an outer
+      `<script src integrity="...">` wrapper — that only protects the outer file, not what it imports, so
+      this doesn't actually solve it. Newer import-map integrity proposals exist but aren't stable/broadly
+      shipped enough to depend on for a demo meant to just work in any recent Chrome. The one mechanism that
+      gives REAL integrity today: vendor the exact pinned file into the repo (e.g.
+      `wiki-explore/vendor/marked.esm.js`) and import it via a same-origin relative path instead of the CDN
+      URL — eliminates the third-party trust dependency entirely, and would let the CSP's `script-src` drop
+      `cdn.jsdelivr.net` altogether. Cost: makes wiki-explore the first page in this family to vendor a
+      dependency rather than CDN-import it (a real, if small, precedent-setting departure from the
+      established convention), plus a manual re-vet step on future version bumps instead of just changing a
+      URL. Not done — a real trade-off for the user to decide, not an obvious default.
   - The bigger, standing next step behind all of this: page-choice / multiple articles — the actual reason
     today's full retrieval + Wikidata-fact rebuild happened. The data model was deliberately kept free of
     hardcoded state specifically so this doesn't mean reworking the retrieval logic, just adding a way to
