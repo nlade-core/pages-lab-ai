@@ -397,11 +397,13 @@ CPU-only Python can't give it.
     genuinely useful facts like `author`/`publisher` for other topics).
   - A single lead image is recommended and cheap to add — `chrome-chat`'s `/wiki image` already solved the
     fetch + Commons-licensing-safety check; this would be a port, not new work.
-  - Quality items, low urgency: `fetchArticle`/`resolveWikidataQid` throw a raw, unfriendly error if a
-    title doesn't resolve (unreachable today since the title is hardcoded, but relevant the moment
-    page-choice lands); `buildRankingPrompt` includes the *entire* flattened section list uncapped, fine
-    for this article's size but could get unwieldy on a much bigger/deeper one; `fetchWikidataFacts`'s
-    final loop accesses `propEntities[pid]` with no existence check.
+  - Quality items — **fixed since**: `fetchArticle` now checks Wikipedia's `missing` marker and throws a
+    clear error for a nonexistent title (confirmed live: a bad title returns a normal HTTP 200, not an
+    error, so `res.ok` never caught this); `buildRankingPrompt` now caps its section list at 80 entries,
+    disclosed in the prompt text when triggered rather than silent; `fetchWikidataFacts` now skips a
+    `keptPid` whose entity is missing from a batched response instead of losing every other fact for that
+    load. All three verified with dedicated stub tests, including synthetic cases (a 100-section article,
+    a deliberately-dropped batch entity) that none of the 4 real test articles happen to exercise.
   - Security, both accepted/low-severity rather than fixed: a visitor's raw question is concatenated
     directly into instruction-bearing prompt strings with no delimiter hardening (real prompt-injection
     surface, but blast radius is just "the model says something odd in that visitor's own chat" — no
