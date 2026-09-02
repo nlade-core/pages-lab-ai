@@ -397,10 +397,17 @@ CPU-only Python can't give it.
     existing dropdown pattern — the previous entry above put it in the model's own prompt but left the visible
     "what I know" list in the chat box out of sync with what the model actually had. Same order as the
     prompt: Summary → Infobox → Known Facts → Sections, best-effort (no empty dropdown if the fetch failed).
-  - What's still undecided: the graph-traversal angle (every Wikidata item-valued fact is itself a QID that
-    could be fetched a hop further for more claims — genuinely more "linked data" than the infobox's own
-    plain hyperlinks, which just point at other Wikipedia articles, not structured entities) is real and
-    unused, not built. Full reasoning is in memory and this repo's own commit history, not repeated here.
+  - **(2026-09-02 16:30 BST) The two link edges the extraction pipeline was discarding are now retained** —
+    groundwork for multi-article support, not a visible feature yet (no UI/prompt wiring). Every item-valued
+    Wikidata fact (architect, structural engineer, spouse, etc.) keeps its real QID(s) alongside the label
+    text, instead of resolving to a string and throwing the pointer away; every infobox fact keeps its own
+    cell's hyperlinks (already-absolute `https://en.wikipedia.org/...` URLs) alongside the extracted text.
+    These are two genuinely different kinds of link — a QID points at a structured Wikidata entity one fetch
+    away from more claims, an infobox href points at another article's own plain-text extract (the same
+    pipeline this page already runs) — and neither recovers the article body's own in-text wikilinks, which
+    `explaintext=1` strips entirely; getting those back would mean giving up the shared plain-text fetch the
+    whole tree parser depends on, a real architecture change, deliberately not pursued. Verified live against
+    all 4 test articles: real QIDs recovered with zero malformed ids, infobox links correctly absolute.
 - **wiki-explore: a security/quality pass**, done, nothing critical — full findings below, for the next
   session to act on rather than re-derive:
   - Two quick wins, already fully reasoned through: drop the "Summary" dropdown from the chat's starter
