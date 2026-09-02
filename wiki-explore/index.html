@@ -979,22 +979,28 @@
     function renderFactsList(facts) {
       return '<ul>' + facts.map((f) => '<li><strong>' + escapeHtml(f.label) + ':</strong> ' + escapeHtml(f.value) + '</li>').join('') + '</ul>';
     }
-    function addStarterMessage(article, facts) {
+    function addStarterMessage(article, facts, infoboxFacts) {
       const introHtml = article.intro.split('\n\n').filter(Boolean).map((p) => '<p>' + escapeHtml(p) + '</p>').join('');
       const totalCount = flattenWithPaths(article.tree).length;
-      // The facts dropdown only shows up at all if any facts actually came
-      // back -- Wikidata enrichment is best-effort (see fetchWikidataFacts),
-      // so a visitor never sees an empty "Known facts" shell on a load
-      // where it failed or came back empty.
+      // Both dropdowns only show up if their source actually came back --
+      // the infobox fetch and Wikidata enrichment are both best-effort (see
+      // fetchInfoboxHtml/fetchWikidataFacts), so a visitor never sees an
+      // empty shell for one that failed or came back empty.
+      const infoboxDetails = (infoboxFacts && infoboxFacts.length)
+        ? '<details><summary>Infobox (' + infoboxFacts.length + ')</summary>' + renderFactsList(infoboxFacts) + '</details>'
+        : '';
       const factsDetails = (facts && facts.length)
         ? '<details><summary>Known facts (' + facts.length + ')</summary>' + renderFactsList(facts) + '</details>'
         : '';
-      // Order: Summary and Known facts are both "the quick answer, no
-      // digging required" -- grouped together, with Sections (not an
+      // Order: Summary, Infobox, and Known facts are all "the quick answer,
+      // no digging required" -- grouped together, with Sections (not an
       // answer, a map of what's available to go deeper on) last. Matches
-      // the system prompt's own order above, not just this display.
+      // the system prompt's own order above (buildSystemPrompt), not just
+      // this display -- the infobox was already reaching the model before
+      // it was visible here; this closes that backend/frontend gap.
       const html = '<p>I\'ve loaded <strong>' + escapeHtml(article.title) + '</strong> -- ask me anything, or check what I know below:</p>'
         + '<details><summary>Summary</summary>' + introHtml + '</details>'
+        + infoboxDetails
         + factsDetails
         + '<details><summary>Sections (' + totalCount + ')</summary>' + renderSectionList(article.tree) + '</details>';
       const row = document.createElement('div');
@@ -1116,7 +1122,7 @@
         // fresh download. The same summary/tree/facts still get fed to
         // the model as its priming context below; this just means the
         // visitor isn't staring at a blank chat pane in the meantime.
-        addStarterMessage(article, facts);
+        addStarterMessage(article, facts, infoboxFacts);
       } catch (e) {
         articleTitleEl.textContent = 'Failed to load article';
         chatNote.textContent = 'Error loading article: ' + e.message;
