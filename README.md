@@ -378,12 +378,16 @@ CPU-only Python can't give it.
   their correct section needs the full/mobile HTML endpoint, a structurally different data source than
   the plain-text extract this page's tree parser depends on — a real re-architecture for a nice-to-have,
   not a core need.
-- **wiki-explore: infobox data as its own feature** — moot, already solved differently: the Known Facts
-  feature (Wikidata-sourced) already surfaces the infobox's actual content (height, architect, materials,
-  coordinates); no separate infobox-scraping effort needed.
-- **wiki-explore: an embedded map from the coordinates already in Known Facts** — a genuinely interesting
-  idea, but a new capability (embedding a map widget), not something to pull from the Wikipedia API itself
-  — worth treating as its own separate feature decision later, not bundled with this list.
+- **wiki-explore: infobox data and a map — built since, as an explicit demo/spike, not yet a committed
+  feature.** The article pane now renders the real Wikipedia infobox (fetched from the full HTML endpoint,
+  sanitized, floated right with the intro's paragraphs wrapping beside it on the left — matching real
+  Wikipedia's own lead-section layout), including a genuine OpenStreetMap embed keyed off the article's
+  coordinate (read directly from Wikidata property `P625`) where one exists. Confirmed to generalize
+  across all 4 test articles, one real bug found and fixed along the way (a `<link>`-tag relative URL a
+  narrower selector had missed). Deliberately scoped to the page render only, per direct request — the
+  system prompt and chat sidebar are untouched. Full reasoning, the infobox/Wikidata coverage comparison
+  across topic types, and what's still undecided (whether to formalize this past spike status) are in
+  memory and this repo's own commit history, not repeated here.
 - **wiki-explore: a security/quality pass**, done, nothing critical — full findings below, for the next
   session to act on rather than re-derive:
   - Two quick wins, already fully reasoned through: drop the "Summary" dropdown from the chat's starter
