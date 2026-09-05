@@ -355,6 +355,67 @@ CPU-only Python can't give it.
   implicit row was auto-sizing to content instead of the container's height; fixed with
   `grid-template-rows: minmax(0, 1fr)`).
 
+- [Read aloud](https://nlade-core.github.io/pages-lab-ai/read-aloud/) — the browser's native
+  `speechSynthesis`, not a model at all: zero download, speaks instantly using whatever voices are
+  already installed at the OS level. Mirror-image counterpart to `text-to-speech` (Kokoro) rather than
+  a replacement for it — this page exists specifically to show the other end of the quality/cost
+  trade-off: no download and no CPU spike, at the cost of voice quality being entirely whatever's
+  installed on the visitor's machine. Live word-by-word highlighting via the utterance's `boundary`
+  event (disclosed honestly: granularity depends on the voice — some only report sentence-level
+  boundaries, some none at all), a voice picker that flags each voice's real `localService` property
+  (some system voices are on-device, some quietly require network), and an explicit note that
+  rate/pitch/volume are baked into an utterance at `speak()` time, not adjustable mid-sentence.
+  **Real finding, not assumed:** this machine's installed voices were all default "Compact" quality
+  (checked directly via `say -v ?` — Albert/Fred/Bad News/Wobble/Bells, the old System-7-era novelty
+  set), zero Enhanced/Premium voices present, which is very likely the entire "sounds crude" complaint
+  on first use — not a Web Speech API limitation. Fix confirmed free and code-free: System Settings →
+  Accessibility → Spoken Content → System Voice → Manage Voices has genuinely good neural (Siri-quality)
+  voices, tagged directly in the voice name string once installed (confirmed: "Daniel (Enhanced)"
+  appears distinctly from plain "Daniel" in `say -v ?` after download). **Daniel (Enhanced)** downloaded
+  and in use as of this writing; Premium-tier voices exist too and are still being evaluated before
+  considering anything heavier (Kokoro, or a cloud TTS API, which would break this whole page's
+  on-device pitch and isn't the default path).
+- [Speech input](https://nlade-core.github.io/pages-lab-ai/speech-input/) — on-device-only
+  `SpeechRecognition`, built around a hard boundary rather than just a setting: every request sets
+  `processLocally: true`, and there is no code path anywhere in the file that retries without it if the
+  on-device pack is missing — an `unavailable` status just disables the demo, it never quietly falls
+  back to Google's cloud recognizer (the classic `SpeechRecognition` behavior, and still the *default*
+  if you don't explicitly opt into `processLocally`). Real, verified facts about the underlying API, not
+  assumed: shipped in Chrome 139 (August 2025) via SODA (Speech On-Device API); **en-US is currently the
+  only on-device locale** — every other language silently falls back to network recognition, so this
+  page correctly reports `unavailable` for anything else rather than offering a hidden cloud path; once
+  installed, the model persists as a genuine OS/browser-level component (shows up as "SODA en-US
+  Models" in `chrome://components`) — a one-time download, not refetched per page load or per session.
+  A real, filed Chromium regression (#444393111) broke `processLocally` on macOS between 140.0.7339.82
+  and 140.0.7339.133, fixed by 142.0.7403.0 — checked the actual installed Chrome version (152.0.7977.76)
+  before attributing this page's real-time sluggishness to anything; that specific bug is ruled out, the
+  slowness is genuine on-device compute cost, not a known regression. Ships a continuous-vs-single-
+  utterance toggle (`continuous: false` + no interim results listens for one pause-terminated utterance
+  instead of continuously re-decoding while still being spoken to — closer to "listen fully, then
+  transcribe"), an auto-send-to-Nano option, and a one-shot pipeline: on-device transcript → Nano reply
+  → written to screen first → only then spoken aloud, in that explicit order (verified by the `speak()`
+  helper's returned promise only resolving on the utterance's own `end` event, not fired in parallel).
+  Deliberately kept one-shot/single-turn as the first demo in this family — see `speech-chat` below for
+  the multi-turn version this was designed to lead into.
+
+## Built locally, not yet pushed
+
+- **speech-chat** — the multi-turn follow-up to `speech-input`, deliberately built as a separate page
+  rather than an edit to it (that one stays the one-shot demo). One persistent Nano session for the
+  whole conversation, not recreated per turn: listen (single utterance) → transcript logged → sent to
+  the *same* session → reply logged (written first) → spoken → listens again, looping until End is
+  clicked. A silence timeout (`no-speech`) just resumes listening rather than ending the conversation —
+  the whole point of "multi-turn" breaks if one quiet pause kills it. End is real mid-turn cancellation,
+  not cosmetic: aborts a live recognizer, aborts an in-flight `session.prompt()` via `AbortSignal`,
+  cancels any in-progress speech, and destroys the session — addressing the "no way to abort mid-turn"
+  gap flagged while reviewing the one-shot pipeline. Spoken replies auto-prefer a Premium- or
+  Enhanced-tagged voice over the machine's default Compact one (`/premium/i` then `/enhanced/i` against
+  each `SpeechSynthesisVoice.name`), the direct payoff of the `read-aloud` voice-quality finding above.
+  System prompt keeps replies short for read-aloud hygiene — explicitly NOT the plain-language/
+  reading-level gate a kid-facing game would need; that's a separate, stricter piece of future work.
+  Not pushed live yet — tested locally only, same review-before-ship pattern `speech-input` went
+  through first.
+
 ## Considered, not built
 
 - **Stable Diffusion** via ONNX Runtime Web — checked real component sizes (`aislamov`'s browser-ready
