@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — speech input (on-device only)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  img, picture, video, canvas, svg { display: block; max-width: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3 { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff;
+    --fg: #111111;
+    --muted: #555555;
+    --border: #dddddd;
+    --accent: #0a58ca;
+    --accent-fg: #ffffff;
+    --panel: #f6f8fa;
+    --ok: #1a7f37;
+    --warn: #9a6700;
+    --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117;
+      --fg: #e6edf3;
+      --muted: #9aa4af;
+      --border: #30363d;
+      --accent: #6ea8fe;
+      --accent-fg: #0d1117;
+      --panel: #161b22;
+      --ok: #3fb950;
+      --warn: #d29922;
+      --bad: #ff7b72;
+    }
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5;
+    padding: 3rem 1.5rem;
+  }
+
+  .layout { max-width: 720px; margin: 0 auto; }
+
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+
+  .panel {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+
+  h2 { font-size: 1rem; margin-bottom: 0.75rem; }
+
+  button {
+    background: var(--accent);
+    color: var(--accent-fg);
+    border: none;
+    border-radius: 6px;
+    padding: 0.6rem 1.1rem;
+    cursor: pointer;
+    font-size: 0.95rem;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border);
+  }
+  button.stop { background: var(--bad); }
+
+  .cap-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0;
+    font-size: 0.9rem;
+  }
+  .cap-status { font-weight: 600; font-size: 0.8rem; padding: 0.15rem 0.5rem; border-radius: 4px; }
+  .cap-status.available { color: var(--ok); background: color-mix(in srgb, var(--ok) 15%, transparent); }
+  .cap-status.downloadable, .cap-status.downloading { color: var(--warn); background: color-mix(in srgb, var(--warn) 15%, transparent); }
+  .cap-status.unavailable, .cap-status.missing { color: var(--bad); background: color-mix(in srgb, var(--bad) 15%, transparent); }
+
+  .btn-row { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+
+  #transcript-box {
+    min-height: 4rem;
+    font-size: 1.15rem;
+    padding: 0.9rem 1rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    margin-bottom: 0.75rem;
+  }
+  #transcript-box .interim { color: var(--muted); font-style: italic; }
+
+  .note { color: var(--muted); font-size: 0.85rem; }
+  .demo-disabled { opacity: 0.55; }
+
+  .boundary-panel {
+    background: var(--panel);
+    border: 1px solid var(--ok);
+    border-left: 4px solid var(--ok);
+    border-radius: 10px;
+    padding: 1.5rem;
+    margin-bottom: 1.5rem;
+    font-size: 0.9rem;
+  }
+  .boundary-panel h2 { color: var(--ok); }
+  .boundary-panel ul { margin: 0.5rem 0 0.75rem 1.25rem; }
+  .boundary-panel li { margin-bottom: 0.5rem; }
+  .boundary-panel code {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 0.1rem 0.35rem;
+    font-size: 0.85em;
+  }
+  .verify-box {
+    background: var(--bg);
+    border: 1px dashed var(--warn);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    margin-top: 0.5rem;
+  }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>Speech Input — On-Device Only</h1>
+    <p class="tagline">Say something. Transcribed entirely on this machine, or not transcribed at all — this page refuses to fall back to a cloud recognizer, ever.</p>
+    <p class="subnote">
+      Uses Chrome's on-device Web Speech API (shipped Chrome 139, August 2025), backed by Google's local
+      SODA model — not related to <a href="../speech-to-text/">the Whisper page</a>, and not the classic
+      <code>SpeechRecognition</code> most sites use, which sends audio to Google's servers by default.
+      Part of <a href="../">pages-lab-ai</a> —
+      <a href="https://github.com/nlade-core/pages-lab-ai" target="_blank" rel="noopener">source</a>.
+    </p>
+
+    <div class="boundary-panel">
+      <h2>How this stays local</h2>
+      <ul>
+        <li>Every request this page makes sets <code>processLocally = true</code>. Per spec, that's not a
+          preference — the browser <em>must</em> process locally or fail; it does not silently fall back
+          to a cloud recognizer.</li>
+        <li>If the on-device language pack isn't installed, <code>start()</code> fails outright with a
+          <code>language-not-supported</code> error. This page treats that as "unavailable, stop here" —
+          there is no code path anywhere in this file that retries without <code>processLocally</code>,
+          which is the one mistake that would quietly reopen the cloud path.</li>
+        <li>This entire page makes zero <code>fetch</code>/<code>XMLHttpRequest</code>/<code>WebSocket</code>
+          calls — view-source and check. Nothing the page's own code does can send your voice or transcript
+          anywhere, local or remote.</li>
+      </ul>
+      <div class="verify-box">
+        <strong>Don't just trust this text — verify it yourself:</strong> once the status below says
+        "available" and you've used Start once successfully, turn off Wi-Fi entirely and try Start again.
+        If it still transcribes with no network at all, it's genuinely local. That real test is the only
+        actual proof; a web page can't demonstrate the absence of network activity to itself.
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="cap-row">
+        <span>On-device SpeechRecognition</span>
+        <span class="cap-status" id="cap-status">checking…</span>
+      </div>
+    </div>
+
+    <div class="panel" id="demo-panel">
+      <h2>Try it</h2>
+
+      <div class="field-row" style="margin-bottom: 1rem;">
+        <label style="width:auto; margin-right: 1.5rem;">
+          <input type="radio" name="mode" value="continuous" checked> Continuous (keeps listening, live partial results)
+        </label>
+        <label style="width:auto;">
+          <input type="radio" name="mode" value="single"> Single utterance (listens, waits for you to stop, then transcribes once)
+        </label>
+      </div>
+
+      <div class="btn-row">
+        <button id="install-btn" style="display:none;">Install on-device language pack (en-US)</button>
+        <button id="start-btn" disabled>Start listening</button>
+        <button class="secondary stop" id="stop-btn" disabled>Stop</button>
+      </div>
+
+      <div id="transcript-box"><span class="note">Transcript will appear here.</span></div>
+      <p class="note" id="status-note"></p>
+    </div>
+
+    <div class="panel" id="nano-panel">
+      <h2>Automatically send the transcript to Gemini Nano</h2>
+      <div class="cap-row">
+        <span>Prompt API (LanguageModel)</span>
+        <span class="cap-status" id="nano-cap-status">checking…</span>
+      </div>
+      <label style="display:flex; align-items:center; gap:0.5rem; margin: 0.75rem 0;">
+        <input type="checkbox" id="auto-send-toggle">
+        Automatically prompt Nano with the final transcript, no typing, no button press
+      </label>
+      <div id="nano-reply-box" class="note">Nano's reply will appear here once a transcript is auto-sent.</div>
+    </div>
+
+    <div class="panel" id="pipeline-panel">
+      <h2>Full loop: speak → Nano thinks → reply is written → then spoken aloud</h2>
+      <p class="note" style="margin-bottom: 1rem;">
+        One button. Say something, it transcribes on-device, Nano replies, the reply appears as text
+        immediately, and only once the text is showing does the page read it back out loud.
+      </p>
+      <div class="btn-row">
+        <button id="pipeline-btn" disabled>Start</button>
+      </div>
+      <p class="note" id="pipeline-status">Waiting for on-device speech + Nano to both be ready…</p>
+      <div class="field-row" style="margin-top: 0.5rem;">
+        <label style="width: 5.5rem;">You said</label>
+        <div id="pipeline-transcript" style="flex:1;">—</div>
+      </div>
+      <div id="pipeline-reply-box" style="min-height: 3rem; font-size: 1.15rem; padding: 0.9rem 1rem; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; margin-top: 0.75rem;">
+        <span class="note">Nano's written reply will appear here.</span>
+      </div>
+    </div>
+  </div>
+
+  <script type="module">
+    const capStatus = document.getElementById('cap-status');
+    const demoPanel = document.getElementById('demo-panel');
+    const installBtn = document.getElementById('install-btn');
+    const startBtn = document.getElementById('start-btn');
+    const stopBtn = document.getElementById('stop-btn');
+    const transcriptBox = document.getElementById('transcript-box');
+    const statusNote = document.getElementById('status-note');
+
+    const LANG = 'en-US';
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+    // Deliberately conservative: if this browser doesn't expose the on-device
+    // availability/install surface at all, this page refuses to fall back to
+    // constructing a plain (cloud-capable-by-default) recognizer. Offering
+    // speech input at all in that case would mean silently reintroducing the
+    // exact cloud path this whole page exists to rule out.
+    const hasOnDeviceApi = !!(SR && typeof SR.available === 'function' && typeof SR.install === 'function');
+
+    function setStatus(text, cls) {
+      capStatus.textContent = text;
+      capStatus.className = 'cap-status ' + cls;
+    }
+
+    async function checkAvailability() {
+      if (!SR) {
+        setStatus('not in this browser', 'missing');
+        return 'unavailable';
+      }
+      if (!hasOnDeviceApi) {
+        setStatus('on-device mode not supported here', 'missing');
+        return 'unavailable';
+      }
+      try {
+        const result = await SR.available({ langs: [LANG], processLocally: true });
+        const labels = { available: 'available', downloadable: 'needs install', downloading: 'installing…' };
+        setStatus(labels[result] || result, result === 'available' ? 'available' : result);
+        return result;
+      } catch (e) {
+        setStatus('error: ' + e.message, 'unavailable');
+        return 'unavailable';
+      }
+    }
+
+    async function refreshUi() {
+      const result = await checkAvailability();
+      installBtn.style.display = result === 'downloadable' ? 'inline-block' : 'none';
+      startBtn.disabled = result !== 'available';
+      if (result === 'unavailable') {
+        demoPanel.classList.add('demo-disabled');
+        statusNote.textContent = 'On-device speech recognition isn\'t available for ' + LANG +
+          ' on this device. This page will not fall back to cloud recognition instead.';
+      } else if (result === 'downloadable') {
+        statusNote.textContent = 'Language pack not installed yet — click Install above.';
+      } else if (result === 'downloading') {
+        statusNote.textContent = 'Already installing — this can take a minute. Recheck below.';
+      } else if (result === 'available') {
+        demoPanel.classList.remove('demo-disabled');
+        statusNote.textContent = 'Ready.';
+      }
+    }
+
+    installBtn.addEventListener('click', async () => {
+      installBtn.disabled = true;
+      statusNote.textContent = 'Installing on-device language pack… this can take a minute.';
+      try {
+        const ok = await SR.install({ langs: [LANG], processLocally: true });
+        statusNote.textContent = ok ? 'Installed.' : 'Install did not complete.';
+      } catch (e) {
+        statusNote.textContent = 'Install error: ' + e.message;
+      }
+      installBtn.disabled = false;
+      await refreshUi();
+      updatePipelineButton();
+    });
+
+    let recognition = null;
+    let finalText = '';
+
+    function renderTranscript(interim) {
+      transcriptBox.innerHTML = '';
+      const finalSpan = document.createElement('span');
+      finalSpan.textContent = finalText;
+      transcriptBox.appendChild(finalSpan);
+      if (interim) {
+        const interimSpan = document.createElement('span');
+        interimSpan.className = 'interim';
+        interimSpan.textContent = interim;
+        transcriptBox.appendChild(interimSpan);
+      }
+      if (!finalText && !interim) {
+        transcriptBox.innerHTML = '<span class="note">Transcript will appear here.</span>';
+      }
+    }
+
+    startBtn.addEventListener('click', () => {
+      const mode = document.querySelector('input[name="mode"]:checked').value;
+
+      // No fallback branch here on purpose: if construction or start() throws
+      // for any reason, the catch below just reports it -- it never retries
+      // with processLocally unset or omitted.
+      try {
+        recognition = new SR();
+        recognition.lang = LANG;
+        recognition.processLocally = true;
+        // continuous mode: stays open, live partial results, you call Stop.
+        // single-utterance mode: listens for one utterance, auto-ends the
+        // instant it detects you've stopped talking, only ever fires ONE
+        // final result -- no partial guesses shown while you're still
+        // mid-sentence, closer to "listen fully, then transcribe."
+        recognition.continuous = mode === 'continuous';
+        recognition.interimResults = mode === 'continuous';
+      } catch (e) {
+        statusNote.textContent = 'Could not create recognizer: ' + e.message;
+        return;
+      }
+
+      finalText = '';
+      renderTranscript('');
+
+      recognition.onstart = () => {
+        statusNote.textContent = 'Listening (on-device, ' + mode + ')…';
+        startBtn.disabled = true;
+        stopBtn.disabled = mode !== 'continuous' ? true : false; // nothing to manually stop in single-utterance mode
+      };
+      recognition.onresult = (event) => {
+        let interim = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) {
+          const chunk = event.results[i][0].transcript;
+          if (event.results[i].isFinal) {
+            finalText += chunk + ' ';
+            handleFinalChunk(chunk.trim());
+          } else {
+            interim += chunk;
+          }
+        }
+        renderTranscript(interim);
+      };
+      recognition.onerror = (event) => {
+        statusNote.textContent = 'Error: ' + event.error;
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      };
+      recognition.onend = () => {
+        statusNote.textContent = 'Stopped.';
+        startBtn.disabled = false;
+        stopBtn.disabled = true;
+      };
+
+      try {
+        recognition.start();
+      } catch (e) {
+        statusNote.textContent = 'Could not start: ' + e.message;
+      }
+    });
+
+    stopBtn.addEventListener('click', () => {
+      if (recognition) recognition.stop();
+    });
+
+    // --- Automatically piping the transcript into Gemini Nano ---
+    // Two entirely separate browser APIs with no built-in connection between
+    // them -- "loading speech into Nano" is just: take the plain-text final
+    // transcript and pass it to session.prompt() like any other string.
+    const nanoCapStatus = document.getElementById('nano-cap-status');
+    const autoSendToggle = document.getElementById('auto-send-toggle');
+    const nanoReplyBox = document.getElementById('nano-reply-box');
+
+    function withTimeout(promise, ms) {
+      return Promise.race([
+        promise,
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timed out')), ms)),
+      ]);
+    }
+
+    let nanoUsable = false;
+    async function checkNanoCapability() {
+      if (!self.LanguageModel) {
+        nanoCapStatus.textContent = 'not in this browser';
+        nanoCapStatus.classList.add('missing');
+        return;
+      }
+      try {
+        const availability = await withTimeout(LanguageModel.availability(), 5000);
+        nanoUsable = availability !== 'unavailable';
+        nanoCapStatus.textContent = availability === 'available' ? 'available' :
+          nanoUsable ? 'needs download' : 'unavailable';
+        nanoCapStatus.classList.add(availability === 'available' ? 'available' :
+          nanoUsable ? 'downloadable' : 'unavailable');
+      } catch (e) {
+        nanoCapStatus.textContent = 'error: ' + e.message;
+        nanoCapStatus.classList.add('unavailable');
+      }
+    }
+    checkNanoCapability();
+
+    async function sendToNano(text) {
+      if (!text) return;
+      nanoReplyBox.textContent = 'Sending "' + text + '" to Gemini Nano…';
+      try {
+        const session = await LanguageModel.create();
+        try {
+          const reply = await session.prompt(text);
+          nanoReplyBox.textContent = reply;
+        } finally {
+          session.destroy();
+        }
+      } catch (e) {
+        nanoReplyBox.textContent = 'Error: ' + e.message;
+      }
+    }
+
+    function handleFinalChunk(text) {
+      if (autoSendToggle.checked && nanoUsable && text) sendToNano(text);
+    }
+
+    // --- Full loop: on-device STT -> Nano -> written reply -> spoken reply ---
+    const pipelineBtn = document.getElementById('pipeline-btn');
+    const pipelineStatus = document.getElementById('pipeline-status');
+    const pipelineTranscript = document.getElementById('pipeline-transcript');
+    const pipelineReplyBox = document.getElementById('pipeline-reply-box');
+
+    function pipelineReady() {
+      return capStatus.classList.contains('available') && nanoUsable;
+    }
+    function updatePipelineButton() {
+      pipelineBtn.disabled = !pipelineReady();
+      if (!pipelineReady()) {
+        pipelineStatus.textContent = 'Waiting for on-device speech + Nano to both be ready…';
+      } else if (pipelineStatus.textContent.startsWith('Waiting')) {
+        pipelineStatus.textContent = 'Ready.';
+      }
+    }
+
+    // Speaks text and resolves only once speaking has actually finished --
+    // the whole point of this pipeline is text-first, speech-second, in that
+    // order, not fired in parallel.
+    function speak(text) {
+      return new Promise((resolve) => {
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.onend = () => resolve();
+        utterance.onerror = () => resolve();
+        speechSynthesis.speak(utterance);
+      });
+    }
+
+    pipelineBtn.addEventListener('click', () => {
+      pipelineBtn.disabled = true;
+      pipelineStatus.textContent = 'Listening…';
+      pipelineTranscript.textContent = '—';
+      pipelineReplyBox.innerHTML = '<span class="note">Nano\'s written reply will appear here.</span>';
+
+      // A dedicated recognizer instance, separate from the manual demo above,
+      // so the two panels never share mutable state. Single-utterance mode
+      // is the right fit for a question/answer turn -- listen until you stop
+      // talking, one final transcript, done.
+      let rec;
+      try {
+        rec = new SR();
+        rec.lang = LANG;
+        rec.processLocally = true;
+        rec.continuous = false;
+        rec.interimResults = false;
+      } catch (e) {
+        pipelineStatus.textContent = 'Could not create recognizer: ' + e.message;
+        pipelineBtn.disabled = false;
+        return;
+      }
+
+      rec.onresult = async (event) => {
+        const text = event.results[0][0].transcript.trim();
+        pipelineTranscript.textContent = text || '(nothing heard)';
+        if (!text) { pipelineStatus.textContent = 'Heard nothing.'; pipelineBtn.disabled = false; return; }
+
+        pipelineStatus.textContent = 'Thinking…';
+        try {
+          const session = await LanguageModel.create();
+          let reply;
+          try {
+            reply = await session.prompt(text);
+          } finally {
+            session.destroy();
+          }
+
+          // Written first -- this is the actual point being demonstrated.
+          pipelineReplyBox.textContent = reply;
+          pipelineStatus.textContent = 'Speaking…';
+
+          await speak(reply);
+          pipelineStatus.textContent = 'Done.';
+        } catch (e) {
+          pipelineStatus.textContent = 'Error: ' + e.message;
+        }
+        pipelineBtn.disabled = false;
+      };
+      rec.onerror = (event) => {
+        pipelineStatus.textContent = 'Error: ' + event.error;
+        pipelineBtn.disabled = false;
+      };
+
+      try {
+        rec.start();
+      } catch (e) {
+        pipelineStatus.textContent = 'Could not start: ' + e.message;
+        pipelineBtn.disabled = false;
+      }
+    });
+
+    Promise.all([refreshUi(), checkNanoCapability()]).then(updatePipelineButton);
+  </script>
+</body>
+</html>
