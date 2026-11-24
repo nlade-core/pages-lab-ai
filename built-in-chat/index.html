@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — built-in chat</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  input, button, textarea, select { font: inherit; }
+  p, h1, h2, h3, li { overflow-wrap: break-word; }
+
+  :root {
+    --bg: #ffffff; --fg: #111111; --muted: #555555; --border: #dddddd;
+    --accent: #0a58ca; --accent-fg: #ffffff; --panel: #f6f8fa;
+    --bubble-user: #e7f0ff; --bubble-assistant: #f6f8fa;
+    --ok: #1a7f37; --warn: #9a6700; --bad: #cf222e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0d1117; --fg: #e6edf3; --muted: #9aa4af; --border: #30363d;
+      --accent: #6ea8fe; --accent-fg: #0d1117; --panel: #161b22;
+      --bubble-user: #1c2b42; --bubble-assistant: #161b22;
+      --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    }
+  }
+
+  body {
+    background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.5; padding: 3rem 1rem;
+  }
+  .layout { max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  .tagline { color: var(--muted); margin-bottom: 0.5rem; }
+  .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
+  a { color: var(--accent); }
+  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0.05rem 0.3rem; overflow-wrap: anywhere; }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
+
+  .badge { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+  .dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
+  .badge .model { font-weight: 600; }
+  .badge .detail { color: var(--muted); font-size: 0.9rem; }
+  #setup { margin-top: 1rem; display: none; }
+  #setup ol { padding-left: 1.25rem; }
+  #setup li { margin-bottom: 0.35rem; }
+  progress { width: 100%; margin-top: 0.75rem; display: none; }
+
+  button { background: var(--accent); color: var(--accent-fg); border: none; border-radius: 6px; padding: 0.6rem 1.1rem; cursor: pointer; font-size: 0.95rem; }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.45; cursor: not-allowed; }
+  button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
+  #start-btn { margin-top: 1rem; display: none; }
+
+  .workspace { display: none; }
+  .workspace.active { display: block; }
+  #chat-log { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; max-height: 55vh; overflow-y: auto; }
+  .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; white-space: pre-wrap; }
+  .msg.user { align-self: flex-end; background: var(--bubble-user); }
+  .msg.assistant { align-self: flex-start; background: var(--bubble-assistant); border: 1px solid var(--border); }
+  .msg .role { display: block; font-size: 0.75rem; color: var(--muted); margin-bottom: 0.2rem; }
+  .row { display: flex; gap: 0.5rem; }
+  input[type="text"] { flex: 1; min-width: 0; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; font-size: 0.95rem; }
+  .op-note { color: var(--muted); font-size: 0.85rem; margin-top: 0.75rem; min-height: 1.2em; }
+  .actions { display: flex; gap: 0.5rem; margin-top: 0.75rem; }
+  #stop-btn { display: none; }
+
+  footer { color: var(--muted); font-size: 0.85rem; margin-top: 2rem; text-align: center; }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>Built-in model chat</h1>
+    <p class="tagline">One page, whichever model your browser ships. Chrome gives you Google's Gemini Nano, Edge gives you Microsoft's Phi-4-mini. The page detects which one and uses it. Nothing leaves your device.</p>
+    <p class="subnote">Both browsers expose their model through the same <a href="https://github.com/webmachinelearning/prompt-api" target="_blank" rel="noopener">Prompt API</a>, so this code doesn't change between them. Part of <a href="../">pages-lab-ai</a>. <a href="https://github.com/nlade-core/pages-lab-ai/tree/main/built-in-chat" target="_blank" rel="noopener">Source</a>.</p>
+
+    <div class="panel" id="status-panel">
+      <div class="badge">
+        <span class="dot" id="status-dot"></span>
+        <div>
+          <div class="model" id="status-model">Checking your browser…</div>
+          <div class="detail" id="status-detail"></div>
+        </div>
+      </div>
+      <progress id="dl-progress" max="1" value="0"></progress>
+      <div id="setup"></div>
+      <button id="start-btn">Start chatting</button>
+    </div>
+
+    <div class="panel workspace" id="workspace">
+      <div id="chat-log"></div>
+      <div class="row">
+        <input type="text" id="chat-input" placeholder="Say something…" autocomplete="off">
+        <button id="send-btn">Send</button>
+      </div>
+      <div class="op-note" id="chat-note"></div>
+      <div class="actions">
+        <button class="secondary" id="stop-btn">Stop</button>
+        <button class="secondary" id="reset-btn">New chat</button>
+      </div>
+    </div>
+
+    <footer>100% client-side. No server, no API key, no account.</footer>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>
