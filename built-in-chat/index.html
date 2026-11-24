@@ -35,29 +35,37 @@
   .tagline { color: var(--muted); margin-bottom: 0.5rem; }
   .subnote { color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem; }
   a { color: var(--accent); }
-  code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 0.05rem 0.3rem; overflow-wrap: anywhere; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.85em; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; }
+  code { padding: 0.05rem 0.3rem; overflow-wrap: anywhere; }
+  pre { padding: 0.5rem 0.6rem; margin: 0.35rem 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
+  .provider + .provider { border-top: 1px solid var(--border); margin-top: 1.1rem; padding-top: 1.1rem; }
+  .provider .kind { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 0.35rem; }
 
   .badge { display: flex; gap: 0.75rem; align-items: baseline; }
-  .dot { position: relative; top: 0.05rem; }
-  .dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--muted); flex: none; }
+  .dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--muted); flex: none; position: relative; top: 0.05rem; }
   .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
   .badge .model { font-weight: 600; }
   .badge .detail { color: var(--muted); font-size: 0.9rem; }
-  #setup { margin-top: 1rem; display: none; }
-  #setup ol { padding-left: 1.25rem; }
-  #setup li { margin-bottom: 0.35rem; }
+  .setup { margin-top: 0.75rem; display: none; font-size: 0.92rem; }
+  .setup ol { padding-left: 1.25rem; }
+  .setup li { margin-bottom: 0.45rem; }
+  .setup .os { font-weight: 600; margin-top: 0.4rem; }
   progress { width: 100%; margin-top: 0.75rem; display: none; }
+  .controls { display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; margin-top: 0.85rem; }
+  .controls:empty { display: none; }
+  select { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 0.5rem 0.6rem; max-width: 100%; }
 
   button { background: var(--accent); color: var(--accent-fg); border: none; border-radius: 6px; padding: 0.6rem 1.1rem; cursor: pointer; font-size: 0.95rem; }
   button:hover { opacity: 0.9; }
   button:disabled { opacity: 0.45; cursor: not-allowed; }
   button.secondary { background: transparent; color: var(--accent); border: 1px solid var(--border); }
-  #start-btn { margin-top: 1rem; display: none; }
 
   .workspace { display: none; }
   .workspace.active { display: block; }
+  .talking { display: flex; justify-content: space-between; align-items: baseline; gap: 0.5rem; margin-bottom: 0.85rem; font-size: 0.9rem; color: var(--muted); }
+  .talking strong { color: var(--fg); }
   #chat-log { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 1rem; max-height: 55vh; overflow-y: auto; }
   .msg { padding: 0.6rem 0.85rem; border-radius: 10px; max-width: 85%; white-space: pre-wrap; }
   .msg.user { align-self: flex-end; background: var(--bubble-user); }
@@ -75,23 +83,34 @@
 <body>
   <div class="layout">
     <h1>Built-in model chat</h1>
-    <p class="tagline">One page, whichever model your browser ships. Chrome gives you Google's Gemini Nano, Edge gives you Microsoft's Phi-4-mini. The page detects which one and uses it. Nothing leaves your device.</p>
-    <p class="subnote">Both browsers expose their model through the same <a href="https://github.com/webmachinelearning/prompt-api" target="_blank" rel="noopener">Prompt API</a>, so this code doesn't change between them. Part of <a href="../">pages-lab-ai</a>. <a href="https://github.com/nlade-core/pages-lab-ai/tree/main/built-in-chat" target="_blank" rel="noopener">Source</a>.</p>
+    <p class="tagline">One page, whichever local model you have. Chrome gives you Google's Gemini Nano, Edge gives you Microsoft's Phi-4-mini, and if you run <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> you can use any model you've pulled. Nothing leaves your device.</p>
+    <p class="subnote">Chrome and Edge expose their model through the same <a href="https://github.com/webmachinelearning/prompt-api" target="_blank" rel="noopener">Prompt API</a>, so that code doesn't change between them. Ollama is reached on <code>localhost</code>, only when you click Connect. Part of <a href="../">pages-lab-ai</a>. <a href="https://github.com/nlade-core/pages-lab-ai/tree/main/built-in-chat" target="_blank" rel="noopener">Source</a>.</p>
 
     <div class="panel" id="status-panel">
-      <div class="badge">
-        <span class="dot" id="status-dot"></span>
-        <div>
-          <div class="model" id="status-model">Checking your browser…</div>
-          <div class="detail" id="status-detail"></div>
+      <div class="provider" id="p-builtin">
+        <div class="kind">In your browser</div>
+        <div class="badge">
+          <span class="dot" data-dot></span>
+          <div><div class="model" data-model>Checking your browser…</div><div class="detail" data-detail></div></div>
         </div>
+        <progress max="1" value="0" data-progress></progress>
+        <div class="setup" data-setup></div>
+        <div class="controls" data-controls></div>
       </div>
-      <progress id="dl-progress" max="1" value="0"></progress>
-      <div id="setup"></div>
-      <button id="start-btn">Start chatting</button>
+
+      <div class="provider" id="p-ollama">
+        <div class="kind">On your computer</div>
+        <div class="badge">
+          <span class="dot" data-dot></span>
+          <div><div class="model" data-model>Ollama</div><div class="detail" data-detail>Not checked. The page only contacts your computer when you click Connect.</div></div>
+        </div>
+        <div class="setup" data-setup></div>
+        <div class="controls" data-controls></div>
+      </div>
     </div>
 
     <div class="panel workspace" id="workspace">
+      <div class="talking"><span>Talking to <strong id="talking-to"></strong></span><button class="secondary" id="switch-btn">Switch model</button></div>
       <div id="chat-log"></div>
       <div class="row">
         <input type="text" id="chat-input" placeholder="Say something…" autocomplete="off">
