@@ -39,7 +39,8 @@
 
   .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; }
 
-  .badge { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+  .badge { display: flex; gap: 0.75rem; align-items: baseline; }
+  .dot { position: relative; top: 0.05rem; }
   .dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; background: var(--muted); flex: none; }
   .dot.ok { background: var(--ok); } .dot.warn { background: var(--warn); } .dot.bad { background: var(--bad); }
   .badge .model { font-weight: 600; }
