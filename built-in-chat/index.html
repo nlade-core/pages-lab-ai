@@ -83,8 +83,8 @@
 <body>
   <div class="layout">
     <h1>Built-in model chat</h1>
-    <p class="tagline">One page, whichever local model you have. Chrome gives you Google's Gemini Nano, Edge gives you Microsoft's Phi-4-mini, and if you run <a href="https://ollama.com" target="_blank" rel="noopener">Ollama</a> you can use any model you've pulled. Nothing leaves your device.</p>
-    <p class="subnote">Chrome and Edge expose their model through the same <a href="https://github.com/webmachinelearning/prompt-api" target="_blank" rel="noopener">Prompt API</a>, so that code doesn't change between them. Ollama is reached on <code>localhost</code>, only when you click Connect. Part of <a href="../">pages-lab-ai</a>. <a href="https://github.com/nlade-core/pages-lab-ai/tree/main/built-in-chat" target="_blank" rel="noopener">Source</a>.</p>
+    <p class="tagline">One page, whichever model your browser ships. Chrome gives you Google's Gemini Nano, Edge gives you Microsoft's Phi-4-mini. The page detects which one and uses it. Nothing leaves your device.</p>
+    <p class="subnote">Both browsers expose their model through the same <a href="https://github.com/webmachinelearning/prompt-api" target="_blank" rel="noopener">Prompt API</a>, so this code doesn't change between them. Part of <a href="../">pages-lab-ai</a>. <a href="https://github.com/nlade-core/pages-lab-ai/tree/main/built-in-chat" target="_blank" rel="noopener">Source</a>.</p>
 
     <div class="panel" id="status-panel">
       <div class="provider" id="p-builtin">
@@ -97,20 +97,10 @@
         <div class="setup" data-setup></div>
         <div class="controls" data-controls></div>
       </div>
-
-      <div class="provider" id="p-ollama">
-        <div class="kind">On your computer</div>
-        <div class="badge">
-          <span class="dot" data-dot></span>
-          <div><div class="model" data-model>Ollama</div><div class="detail" data-detail>Not checked. The page only contacts your computer when you click Connect.</div></div>
-        </div>
-        <div class="setup" data-setup></div>
-        <div class="controls" data-controls></div>
-      </div>
     </div>
 
     <div class="panel workspace" id="workspace">
-      <div class="talking"><span>Talking to <strong id="talking-to"></strong></span><button class="secondary" id="switch-btn">Switch model</button></div>
+      <div class="talking"><span>Talking to <strong id="talking-to"></strong></span></div>
       <div id="chat-log"></div>
       <div class="row">
         <input type="text" id="chat-input" placeholder="Say something…" autocomplete="off">
@@ -126,6 +116,6 @@
     <footer>100% client-side. No server, no API key, no account.</footer>
   </div>
   <!-- Bump ?v= on every app.js change: Pages caches for 10 min, and new HTML + stale JS breaks the page. -->
-  <script src="app.js?v=2"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

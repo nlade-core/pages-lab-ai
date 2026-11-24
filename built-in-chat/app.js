@@ -1,19 +1,11 @@
 // Built-in model chat: one chat UI over whichever local model is available.
 //  - In the browser: the Prompt API (LanguageModel). Chrome -> Gemini Nano, Edge -> Phi-4-mini.
 //    The API can't report which model it wraps, so the label comes from the browser brand.
-//  - On the computer: Ollama on localhost, contacted only after the visitor clicks Connect
-//    (no silent localhost probing on page load), cloud-routed Ollama models filtered out.
+//  Ollama was tried as a third option and parked: see OLLAMA.md.
 
 const SYSTEM_PROMPT = 'You are a helpful, concise assistant.';
-const OLLAMA = 'http://127.0.0.1:11434';
-const OLLAMA_PREFERRED = ['phi4-mini', 'gemma3:4b', 'qwen3.5:4b', 'gemma3n:e2b', 'llama3.2', 'llama3.1:8b'];
 
 const $ = (id) => document.getElementById(id);
-const store = {
-  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
-  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
-  del(k) { try { localStorage.removeItem(k); } catch {} },
-};
 
 function card(id) {
   const root = $(id);
@@ -62,7 +54,6 @@ function detectBrowser() {
 
 // The API decides whether we can run; the brand only decides the label.
 const browser = BROWSERS[detectBrowser()] || { name: 'this browser', model: 'Built-in model', flag: null, extra: '' };
-const isSafari = /Safari\//.test(navigator.userAgent) && !/Chrome\/|Chromium\//.test(navigator.userAgent);
 
 // Chrome warns (and may refuse) without declared languages; older Edge builds
 // may reject unknown options. Try with them, fall back to without.
@@ -72,7 +63,7 @@ const bc = card('p-builtin');
 
 function builtinSetupSteps() {
   if (!browser.flag) {
-    return '<p>Built-in models ship in Chrome and Edge on desktop. In other browsers, use Ollama below.</p>';
+    return '<p>Built-in models ship in Chrome and Edge on desktop. </p>';
   }
   return '<ol>' +
     '<li>Open <code>' + browser.flag + '</code> in a new tab (copy-paste it; pages can\'t link to flags).</li>' +
@@ -154,155 +145,11 @@ async function initBuiltin() {
   bc.setControls(b);
 }
 
-// ---------------------------------------------------------------- Ollama
-
-const oc = card('p-ollama');
-
-function ollamaOriginSteps() {
-  const origin = location.origin;
-  return '<p>Ollama is running, but it only accepts requests from pages on <code>localhost</code> unless you allow this site. Run the command for your OS, then quit and reopen Ollama:</p>' +
-    '<div class="os">macOS</div><pre>launchctl setenv OLLAMA_ORIGINS "' + origin + '"</pre>' +
-    '<div class="os">Windows (PowerShell)</div><pre>setx OLLAMA_ORIGINS "' + origin + '"</pre>' +
-    '<div class="os">Linux (systemd)</div><pre>sudo systemctl edit ollama\n# add under [Service]:\nEnvironment="OLLAMA_ORIGINS=' + origin + '"\nsudo systemctl restart ollama</pre>' +
-    '<p>If you already set <code>OLLAMA_ORIGINS</code> for something else, add this site to it with a comma. On macOS the setting lasts until you restart your Mac.</p>';
-}
-
-function ollamaNotRunningSteps() {
-  let html = '<ol>' +
-    '<li>Install <a href="https://ollama.com/download" target="_blank" rel="noopener">Ollama</a> and make sure it\'s running.</li>' +
-    '<li>Pull a small model, for example <code>ollama pull phi4-mini</code>.</li>' +
-    '<li>If your browser asks to let this site access devices on your local network, allow it. That\'s how it reaches Ollama on your computer.</li>' +
-    '</ol>';
-  if (isSafari) html += '<p>Safari blocks secure pages from calling <code>http://localhost</code>, so this won\'t work in Safari. Use Chrome, Edge or Firefox.</p>';
-  return html;
-}
-
-function pickDefault(models) {
-  const saved = store.get('ollama-model');
-  if (saved && models.some((m) => m.name === saved)) return saved;
-  for (const p of OLLAMA_PREFERRED) {
-    const hit = models.find((m) => m.name === p || m.name.startsWith(p + ':') || m.name.startsWith(p));
-    if (hit) return hit.name;
-  }
-  return (models.find((m) => m.size >= 1e9) || models[0]).name;
-}
-
-const ollamaProvider = {
-  label: 'Ollama',
-  model: null,
-  last: null,
-  async begin() {},
-  async *stream(text, prior, signal) {
-    const messages = [{ role: 'system', content: SYSTEM_PROMPT }, ...prior, { role: 'user', content: text }];
-    const r = await fetch(OLLAMA + '/api/chat', {
-      method: 'POST',
-      body: JSON.stringify({ model: this.model, messages, stream: true, think: false }),
-      signal,
-    });
-    if (!r.ok) {
-      let msg = 'HTTP ' + r.status;
-      try { msg = (await r.json()).error || msg; } catch {}
-      throw new Error(msg);
-    }
-    const reader = r.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, { stream: true });
-      let nl;
-      while ((nl = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, nl).trim();
-        buf = buf.slice(nl + 1);
-        if (!line) continue;
-        const d = JSON.parse(line);
-        if (d.error) throw new Error(d.error);
-        if (d.message?.content) yield d.message.content;
-        if (d.done) this.last = d;
-      }
-    }
-  },
-  stats() {
-    const d = this.last;
-    if (!d?.eval_count || !d.eval_duration) return '';
-    return ' ' + d.eval_count + ' tokens at ' + (d.eval_count / (d.eval_duration / 1e9)).toFixed(1) + ' tok/s.';
-  },
-  async reset() {},
-  end() {},
-};
-
-async function ollamaConnect() {
-  oc.hideSetup();
-  oc.setControls();
-  oc.status('warn', 'Ollama', 'Connecting to ' + OLLAMA + '…');
-
-  let tags;
-  try {
-    const r = await fetch(OLLAMA + '/api/tags');
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    tags = await r.json();
-  } catch {
-    // A CORS rejection and "nothing listening" look identical to fetch().
-    // An opaque no-cors request succeeds if something answered, so it tells them apart.
-    let answered = false;
-    try { await fetch(OLLAMA + '/api/version', { mode: 'no-cors' }); answered = true; } catch {}
-    if (answered) {
-      oc.status('bad', 'Ollama is blocking this site', 'It\'s running on your computer but rejected a request from ' + location.origin + '.');
-      oc.showSetup(ollamaOriginSteps());
-    } else {
-      store.del('ollama-connected');
-      oc.status('bad', 'Ollama not reachable', 'Nothing answered at ' + OLLAMA + ', or your browser blocked the request.');
-      oc.showSetup(ollamaNotRunningSteps());
-    }
-    oc.setControls(button('Try again', ollamaConnect, true));
-    return;
-  }
-
-  // Local chat models only: cloud models (remote_host) would send prompts off the device.
-  const all = tags.models || [];
-  const models = all
-    .filter((m) => !m.remote_host)
-    .filter((m) => (m.capabilities ? m.capabilities.includes('completion') : m.size > 1e7 && !/embed/i.test(m.name)))
-    .sort((a, b) => a.size - b.size);
-  const skippedCloud = all.filter((m) => m.remote_host).length;
-
-  if (!models.length) {
-    oc.status('warn', 'Ollama connected, no local chat models', skippedCloud ? skippedCloud + ' cloud model(s) hidden, since they don\'t run on your device.' : '');
-    oc.showSetup('<p>Pull one, then try again: <code>ollama pull phi4-mini</code></p>');
-    oc.setControls(button('Try again', ollamaConnect, true));
-    return;
-  }
-
-  store.set('ollama-connected', '1');
-  oc.status('ok', 'Ollama connected', models.length + ' local chat model' + (models.length > 1 ? 's' : '') +
-    (skippedCloud ? ', ' + skippedCloud + ' cloud model(s) hidden' : '') + '. Larger models take a while to load on first reply.');
-
-  const sel = document.createElement('select');
-  sel.setAttribute('aria-label', 'Ollama model');
-  const def = pickDefault(models);
-  sel.innerHTML = models.map((m) =>
-    '<option value="' + escapeHtml(m.name) + '"' + (m.name === def ? ' selected' : '') + '>' +
-    escapeHtml(m.name) + ' · ' + (m.size / 1e9).toFixed(1) + ' GB</option>').join('');
-  oc.setControls(sel, button('Use Ollama', () => {
-    ollamaProvider.model = sel.value;
-    ollamaProvider.label = sel.value + ' (Ollama)';
-    store.set('ollama-model', sel.value);
-    startChat(ollamaProvider);
-  }), button('Refresh', ollamaConnect, true));
-}
-
-function initOllama() {
-  // Reconnect automatically only for visitors who connected before.
-  if (store.get('ollama-connected')) ollamaConnect();
-  else oc.setControls(button('Connect to Ollama', ollamaConnect, true));
-}
-
 // ---------------------------------------------------------------- chat
 
 const statusPanel = $('status-panel'), workspace = $('workspace'), chatLog = $('chat-log');
 const chatInput = $('chat-input'), sendBtn = $('send-btn'), stopBtn = $('stop-btn');
-const resetBtn = $('reset-btn'), switchBtn = $('switch-btn'), chatNote = $('chat-note'), talkingTo = $('talking-to');
+const resetBtn = $('reset-btn'), chatNote = $('chat-note'), talkingTo = $('talking-to');
 
 let active = null, history = [], generating = false, controller = null;
 
@@ -369,13 +216,5 @@ resetBtn.addEventListener('click', async () => {
   try { await active.reset(); }
   catch (e) { chatNote.textContent = 'Couldn\'t start a new session: ' + e.message; }
 });
-switchBtn.addEventListener('click', () => {
-  controller?.abort();
-  active?.end();
-  active = null;
-  workspace.classList.remove('active');
-  statusPanel.style.display = '';
-});
 
 initBuiltin();
-initOllama();
