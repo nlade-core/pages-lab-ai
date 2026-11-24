@@ -25,7 +25,7 @@ their nearest local Ollama models, using the same 21 prompts.
   - Time to first token and total time, both wall clock from sending the prompt.
   - Session creation time (browser only).
   - Output characters, and pass/fail.
-  - Tokens. Ollama: `prompt_eval_count`/`eval_count`. Browser: `measureInputUsage()` on the prompt,
+  - Tokens. Ollama: `prompt_eval_count`/`eval_count`. Browser: `measureContextUsage()` (formerly `measureInputUsage()`) on the prompt,
     and on the reply text as an estimate of output tokens.
   - Throughput in the tables uses the 3 open-ended items only. Single-word answers arrive in one or
     two chunks, so their rate is noise.

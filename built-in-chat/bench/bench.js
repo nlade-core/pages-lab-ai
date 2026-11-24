@@ -93,6 +93,8 @@ async function createSession(system, settings) {
 
 async function countTokens(s, text) {
   try {
+    // Renamed in newer Chromium (seen in 156+): measureInputUsage -> measureContextUsage.
+    if (typeof s.measureContextUsage === 'function') return await s.measureContextUsage(text);
     if (typeof s.measureInputUsage === 'function') return await s.measureInputUsage(text);
     if (typeof s.countPromptTokens === 'function') return await s.countPromptTokens(text);
   } catch { /* not supported for this input */ }
@@ -120,8 +122,8 @@ async function runOne(system, settings, item, outerSignal) {
     const genS = ttft != null && total > ttft ? (total - ttft) / 1000 : null;
     return {
       used, output: out, chars: out.length, ttft_ms: round1(ttft ?? total), total_ms: round1(total), create_ms: round1(create_ms),
-      in_tokens, out_tokens, input_usage_after: s.inputUsage ?? null,
-      tokens_source: in_tokens == null ? null : 'measureInputUsage (output tokens estimated by measuring the reply text)',
+      in_tokens, out_tokens, input_usage_after: s.contextUsage ?? s.inputUsage ?? null,
+      tokens_source: in_tokens == null ? null : (typeof s.measureContextUsage === 'function' ? 'measureContextUsage' : 'measureInputUsage') + ' (output tokens estimated by measuring the reply text)',
       tok_per_s: out_tokens && genS ? round2(out_tokens / genS) : null,
       chars_per_s: genS ? round2(out.length / genS) : null,
     };
