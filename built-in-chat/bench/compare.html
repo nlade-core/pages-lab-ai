@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>pages-lab-ai — bench compare</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  input, button { font: inherit; }
+  p, h1, h2, li, td { overflow-wrap: break-word; }
+  :root { --bg: #ffffff; --fg: #111111; --muted: #555555; --border: #dddddd; --accent: #0a58ca; --panel: #f6f8fa; --ok: #1a7f37; --bad: #cf222e; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #0d1117; --fg: #e6edf3; --muted: #9aa4af; --border: #30363d; --accent: #6ea8fe; --panel: #161b22; --ok: #3fb950; --bad: #f85149; } }
+  body { background: var(--bg); color: var(--fg); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; line-height: 1.5; padding: 3rem 1rem; }
+  .layout { max-width: 1040px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.35rem; }
+  h2 { font-size: 1.1rem; margin: 0 0 0.6rem; }
+  .tagline, .muted { color: var(--muted); }
+  .tagline { margin-bottom: 1.25rem; }
+  a { color: var(--accent); }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 1.25rem; margin-bottom: 1.25rem; overflow-x: auto; }
+  .drop { border: 2px dashed var(--border); border-radius: 10px; padding: 1rem; text-align: center; color: var(--muted); }
+  .drop.over { border-color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  th, td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .pass { color: var(--ok); } .fail { color: var(--bad); } .na { color: var(--muted); }
+  ul { padding-left: 1.2rem; } li { margin-bottom: 0.4rem; font-size: 0.92rem; }
+  #files { font-size: 0.85rem; margin-top: 0.6rem; }
+</style>
+</head>
+<body>
+  <div class="layout">
+    <h1>Bench compare</h1>
+    <p class="tagline">Browser built-in models against local Ollama models on the same <a href="prompts.json">prompt set</a>. Loads the results committed in <code>results/</code>; drop more JSONL files (for example the ones the <a href="./">bench page</a> downloads) below.</p>
+
+    <div class="panel">
+      <div class="drop" id="drop">Drop JSONL files here, or <label><a href="#" id="pick">choose files</a><input type="file" id="file" accept=".jsonl,.json,.txt" multiple hidden></label></div>
+      <div class="muted" id="files"></div>
+    </div>
+
+    <div class="panel"><h2>Per model</h2><table><thead><tr>
+      <th>Model</th><th>Runtime</th><th>Set</th><th>Score</th><th>Arith.</th><th>Extract.</th><th>Format</th>
+      <th>Median first token</th><th>Median total</th><th>Chars/s (open items)</th><th>Tok/s (open items)</th><th>Tokens from</th>
+    </tr></thead><tbody id="summary"></tbody></table></div>
+
+    <div class="panel"><h2>Per item</h2><table><thead id="item-head"></thead><tbody id="items"></tbody></table></div>
+
+    <div class="panel">
+      <h2>What can't be compared directly</h2>
+      <ul>
+        <li><strong>Different runtimes and builds.</strong> Ollama runs a 4-bit GGUF (Q4_K_M) on llama.cpp/Metal. Chrome and Edge run their own builds of their models, with their own compression and their own GPU path. Even Phi-4-mini, the same weights in Edge and Ollama, is not the same binary.</li>
+        <li><strong>Gemini Nano has no public weights.</strong> The gemma3n/gemma4 rows are open relatives, not Nano.</li>
+        <li><strong>Settings.</strong> Ollama runs at temperature 0, top_k 1, seed 42. The Prompt API may reject or quietly ignore temperature/topK on ordinary web pages. Each browser row records what <code>create()</code> accepted and what the session reported.</li>
+        <li><strong>Tokens.</strong> Ollama reports the tokens it generated, timed by the server. The Prompt API reports no output tokens. The browser figure comes from running <code>measureInputUsage()</code> on the reply text, divided by wall-clock time after the first token. Chars/s is the fairer comparison across runtimes.</li>
+        <li><strong>Time to first token.</strong> Both numbers are wall clock from sending the prompt, after a warm-up. Ollama's includes a localhost HTTP round trip. The browser's excludes session creation, which is recorded separately as <code>create_ms</code>.</li>
+        <li><strong>Throughput uses the open-ended items only.</strong> A one-word answer arrives in one or two chunks, so its chars/s is noise.</li>
+        <li><strong>n = 1.</strong> One run per item. A single pass or fail is anecdote, not a ranking.</li>
+      </ul>
+    </div>
+  </div>
+  <script src="compare.js?v=2"></script>
+</body>
+</html>

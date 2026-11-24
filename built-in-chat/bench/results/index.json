@@ -1,0 +1,8 @@
+{
+  "files": [
+    "ollama-gemma3n-e2b.jsonl",
+    "ollama-gemma3n-e4b.jsonl",
+    "ollama-gemma4-e4b.jsonl",
+    "ollama-phi4-mini.jsonl"
+  ]
+}
